@@ -341,7 +341,9 @@ function JosL-WebRequest{
                     $request.Headers[$_] = $customHeaders.Item($_)
                 }
             }
-            $request.UserAgent = "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.0; WOW64; Trident/7.0; .NET4.0C; .NET4.0E)"
+            $request.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Safari/537.36 Edge/12.10240 OneDriveMapper/$version"
+            #$request.UserAgent = "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.0; WOW64; Trident/7.0; .NET4.0C; .NET4.0E)"
+            
             $request.ContentType = $contentType
             $request.CookieContainer = $script:cookiejar
             $script:debugInfo += "JOSL-REQUEST "
@@ -1892,7 +1894,27 @@ function loginV2(){
         $wResult = [System.Web.HttpUtility]::HtmlDecode($wResult)
         $wResult = [System.Web.HttpUtility]::UrlEncode($wResult)
         $body = "wa=wsignin1.0&wresult=$wResult"
-        $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"       
+        $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"
+        
+        #check for double redirect which will happen if ADFS is itself federated
+        $wResult = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"wresult`" value=`""
+		if($wResult -ne -1){
+			$nextURL = returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`""
+			log -text "Federation Services has a second wresult step.." -warning
+			$wctx = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"wctx`" value=`""
+			if($wctx -ne -1){
+				$wctx = "$($wctx)&amp;LoginOptions=1"
+				$wctx = [System.Web.HttpUtility]::htmldecode($wctx)
+				$wctx = [System.Web.HttpUtility]::UrlEncode($wctx)
+				$wctx = "&wctx=$($wctx)"
+			}else{
+				$wctx = $Null
+			}
+			$wResult = [System.Web.HttpUtility]::HtmlDecode($wResult)
+			$wResult = [System.Web.HttpUtility]::UrlEncode($wResult)
+			$body = "wa=wsignin1.0&wresult=$wResult"
+			$res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*" 
+		}
     }
 
     #some customers have a redirect active to Onedrive for Business, check if we're already there and return true if so
