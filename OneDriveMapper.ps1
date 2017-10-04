@@ -341,8 +341,7 @@ function JosL-WebRequest{
                     $request.Headers[$_] = $customHeaders.Item($_)
                 }
             }
-            $request.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Safari/537.36 Edge/12.10240 OneDriveMapper/$version"
-            #$request.UserAgent = "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.0; WOW64; Trident/7.0; .NET4.0C; .NET4.0E)"
+            $request.UserAgent = "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.0; WOW64; Trident/7.0; .NET4.0C; .NET4.0E); OneDriveMapper/$version"
             
             $request.ContentType = $contentType
             $request.CookieContainer = $script:cookiejar
