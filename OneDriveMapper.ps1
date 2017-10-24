@@ -55,7 +55,7 @@ $dontMapO4B            = $False                    #If you're only using Sharepo
 $addShellLink          = $False                    #Adds a link to Onedrive to the Shell under Favorites (Windows 7, 8 / 2008R2 and 2012R2 only) If you use a remote path, google EnableShellShortcutIconRemotePath
 $deleteUnmanagedDrives = $True                     #If set to $True, OnedriveMapper checks if there are 'other' mapped drives to Sharepoint Online/Onedrive that OnedriveMapper does not manage, and disconnects them. This is useful if you change a driveletter.
 $debugmode             = $False                    #Set to $True for debugging purposes. You'll be able to see the script navigate in Internet Explorer if you're using IE auth mode
-$userLookupMode        = 1                         #1 = Active Directory UPN, 2 = Active Directory Email, 3 = Azure AD Joined Windows 10, 4 = query user for his/her login, 5 = lookup by registry key, 6 = display full form (ask for both username and login if no cached versions can be found)
+$userLookupMode        = 1                         #1 = Active Directory UPN, 2 = Active Directory Email, 3 = Azure AD Joined Windows 10, 4 = query user for his/her login, 5 = lookup by registry key, 6 = display full form (ask for both username and login if no cached versions can be found), 7 = whoami /upn
 $AzureAADConnectSSO    = $False                    #NOT NEEDED FOR NATIVE AUTH, if set to True, will automatically remove AzureADSSO registry key before mapping, and then readd them after mapping. Otherwise, mapping fails because AzureADSSO creates a non-persistent cookie
 $lookupUserGroups      = $False                    #Set this to $True if you want to map user security groups to Sharepoint Sites (read below for additional required configuration)
 $forceUserName         = ''                        #if anything is entered here, userLookupMode is ignored
@@ -2436,11 +2436,15 @@ function getUserLogin{
                     }
                 }
             }
+            7 {
+                log -text "userLookupMode is set to 7 -> getting user from whoami /upn"
+                $userUPN = whoami /upn
+            }
             default {
                 log -text "userLookupMode is not properly configured" -fout
                 abort_OM
             }
-        } 
+        }
     }
     return $userUPN
 }
