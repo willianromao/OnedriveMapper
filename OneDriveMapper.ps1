@@ -33,7 +33,7 @@ param(
 ######## 
 #Configuration 
 ######## 
-$version = "3.11"
+$version = "3.12"
 $configurationID       = "00000000-0000-0000-0000-000000000000"#Don't modify this, unless you are using OnedriveMapper Cloud edition
 
 ###If you set a ConfigurationID and are using OnedriveMapper Cloud, no further configuration is required. If you're not using OnedriveMapper Cloud, please finish below configuration.
@@ -66,7 +66,7 @@ $adfsWaitTime          = 10                        #Amount of seconds to allow f
 $libraryName           = "Documents"               #leave this default, unless you wish to map a non-default library you've created 
 $autoKillIE            = $True                     #Kill any running Internet Explorer processes prior to running the script to prevent security errors when mapping 
 $abortIfNoAdfs         = $False                    #If set to True, will stop the script if no ADFS server has been detected during login
-$adfsMode              = 1                         #1 = use whatever came out of userLookupMode, 2 = use only the part before the @ in the upn
+$adfsMode              = 1                         #1 = use whatever came out of userLookupMode, 2 = use only the part before the @ in the upn, 3 = use user certificate (local user store)
 $adfsSmartLink         = $Null                     #If set, the ADFS smartlink will be used to log in to Office 365. For more info, read the FAQ at http://http://www.lieben.nu/liebensraum/onedrivemapper/onedrivemapper-faq/
 $displayErrors         = $True                     #show errors to user in visual popups
 $persistentMapping     = $True                     #If set to $False, the mapping will go away when the user logs off
@@ -329,6 +329,12 @@ function JosL-WebRequest{
         try{
             $retVal = @{}
             $request = [System.Net.WebRequest]::Create($url)
+            $request.KeepAlive = $True
+            if($adfsMode -eq 3){
+                #Find the FIRST certificate that matches the user's username and append it to all requests
+                $userCert = (Get-ChildItem -Path Cert:\CurrentUser\My | Where-Object {$_.Subject -like "*$($Env:USERNAME)*"})[0]
+                $request.ClientCertificates.AddRange($userCert)
+            }
             $request.TimeOut = 10000
             $request.Method = $method
             $request.Referer = $referer
@@ -361,63 +367,6 @@ function JosL-WebRequest{
             $retVal.rawResponse = $response
             $retVal.StatusCode = $response.StatusCode
             $retVal.StatusDescription = $response.StatusDescription
-            if($PSVersionTable.PSVersion.Major -le 2){
-                $cookies = $response.Headers["Set-Cookie"]
-                if($cookies){
-                    $marker = 0
-                    while($true){
-                        if($cookies.IndexOf("expires=",$marker) -ne -1){
-                            $start = $cookies.IndexOf("expires=",$marker)
-                            $end = $cookies.IndexOf(",",$start)-$start+1
-                            if($end -gt 0){
-                                $replaceFrom = $cookies.SubString($start,$end)
-                                $replaceTo = "$($replaceFrom.SubString(0,$replaceFrom.Length-1))|JOS|"
-                                $cookies = $cookies.Replace($replaceFrom,$replaceTo)
-                            }
-                        }else{break}
-                        $marker=$start+10                        
-                    }
-                    
-                    $cookies = $cookies.Split(",")
-                    if($cookies.Count -gt 0){
-                        foreach($cookie in $cookies){
-                            $cookieParts = $cookie.Split(";")
-                            $index = 0
-                            $name = $Null
-                            $value = $Null
-                            $path = $null
-                            $secure = $Null
-                            $domain = $Null
-                            $expires = $Null
-                            foreach($part in $cookieParts){
-                                if($index -eq 0){
-                                    $name = $part.Split("=")[0]
-                                    $value = $part.Split("=")[1]
-                                }
-                                if($part.Split("=")[0] -eq "path"){
-                                    $path = $part.Split("=")[1]
-                                }
-                                if($part.Split("=")[0] -eq "expires"){
-                                    $expires = $part.Split("=")[1].Replace("|JOS|",",")
-                                }
-                                if($part.Split("=")[0] -eq "secure"){
-                                    $secure = $True
-                                } 
-                                if($part.Split("=")[0] -eq "domain"){
-                                    $domain = $part.Split("=")[1]
-                                    if($domain.IndexOf(".") -eq 0){
-                                        $domain = $domain.SubString(1)
-                                    }
-                                }else{
-                                    $domain = $request.RequestUri.host
-                                }                                        
-                                $index++
-                            }
-                            $script:cookiejar.Add((Create-Cookie -name $name -value $value -domain $domain -path $path -HttpOnly $True -Secure $True -Expires $expires))
-                        }
-                    }
-                }
-            }
             $retVal.Headers = $response.Headers
             $stream = $response.GetResponseStream()
             $streamReader = [System.IO.StreamReader]($stream)
