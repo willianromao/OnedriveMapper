@@ -1592,9 +1592,6 @@ function loginV2(){
         $tryAgainRes
     )
     $script:cookiejar = New-Object System.Net.CookieContainer
-###TODO
-#re-enter usename wanneer nodig
-#detecteer niet met forms maar op url waar mogelijk, verschillende ADFS/Okta versies
     log -text "Login attempt using native method at tenant $O365CustomerName"
     $uidEnc = [System.Web.HttpUtility]::UrlEncode($userUPN)
     #stel allereerste cookie in om websessie te beginnen
@@ -1788,12 +1785,62 @@ function loginV2(){
         log -text "Contacting Federation server and attempting Single SignOn..."
         if(!$adfsSmartLink){
             try{
-                $res = JosL-WebRequest -url $nextURL -Method GET
+                $res = JosL-WebRequest -url $nextURL -Method GET -referer $res.rawResponse.ResponseUri.AbsoluteUri
             }catch{
                 log -text "Error received from ADFS server: $($Error[0])" -fout
                 return $False
             }
         }
+
+        #check if there is an F5 in between and handle accordingly
+        $SAMLRequest = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"SAMLRequest`" value=`""
+        if($SAMLRequest -ne -1){
+            $nextURL = returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`""
+            log -text "Detected F5 SAML Request, forwarding it to $nextURL"
+            $SAMLRequest = [System.Web.HttpUtility]::HtmlDecode($SAMLRequest)
+            $SAMLRequest = [System.Web.HttpUtility]::UrlEncode($SAMLRequest)
+            $RelayState = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"RelayState`" value=`""
+            $body = "SAMLRequest=$SAMLRequest&RelayState=$RelayState"
+            try{
+                $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri
+            }catch{
+                log -text "Error received from F5 server: $($Error[0])" -fout
+                return $False
+            }
+            $nextURL = returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" action=`""        
+            $nextURL = "https://$($res.rawResponse.ResponseUri.Host)$nextURL"
+            $dummy = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"dummy`" value=`""
+            $body = "dummy=$dummy"
+            try{
+                if($dummy -eq -1){
+                    Throw "No redirect code detected from F5, but this may not be fatal"
+                }else{
+                    log -text "Retrieved forward code from F5 server, forwarding to $nextURL"
+                }
+                $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri
+            }catch{
+                log -text "Error received from F5 server: $($Error[0])" -fout
+            }
+
+            $nextURL = returnEnclosedFormValue -res $res -searchString "<form action=`""
+            $SAMLResponse = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"SAMLResponse`" value=`""
+            $SAMLResponse = [System.Web.HttpUtility]::HtmlDecode($SAMLResponse)
+            $SAMLResponse = [System.Web.HttpUtility]::UrlEncode($SAMLResponse)
+            $RelayState = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"RelayState`" value=`""
+            $body = "SAMLResponse=$SAMLResponse&RelayState=$RelayState"
+            try{
+                if($nextURL -ne -1){
+                    log -text "SAML response retrieved from F5, sending to endpoint..."
+                }else{
+                    Throw "No (readable) SAML response retrieved from F5! Use Fiddler to debug"
+                }               
+                $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri
+            }catch{
+                log -text "Error received when getting SAML response from F5 server, script will likely fail: $($Error[0])" -fout
+            }
+        }
+        #\END F5 logic
+
         ##if we get a SAML token, we've been signed in automatically, otherwise, we will have to post our credentials
         $wResult = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"wresult`" value=`""
         if($wResult -eq -1){
