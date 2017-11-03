@@ -69,6 +69,7 @@ $adfsSmartLink         = $Null                     #If set, the ADFS smartlink w
 $displayErrors         = $True                     #show errors to user in visual popups
 $persistentMapping     = $True                     #If set to $False, the mapping will go away when the user logs off
 $buttonText            = "Login"                   #Text of the button on the password input popup box
+$loginformTitleText    = "OneDriveMapper"          #Used as the window title for input popup boxes (userLookupMode is set to 4) and login forms (userLookupMode is set to 6)
 $loginformIntroText    = "Welcome to COMPANY NAME`r`nPlease enter your login and password" #used as introduction text when you set userLookupMode to 6
 $loginFieldText        = "Please enter your login in the form of xxx@xxx.com" #used as label above the login text field when you set userLookupMode to 6
 $passwordFieldText     = "Please enter your password" #used as label above the password text field when you set userLookupMode to 6
@@ -82,6 +83,7 @@ $sharepointMappings    = @()
 $sharepointMappings    += "https://ogd.sharepoint.com/site1/documentsLibrary,ExampleLabel,Y:"
 $showProgressBar       = $True                     #will show a progress bar to the user
 $progressBarColor      = "#CC99FF"
+$progressBarText       = "OnedriveMapper v$version is connecting your drives..."
 $versionCheck          = $False                     #will check if running the latest version, if not, this will be logged to the logfile, no personal data is transmitted.
 $autoDetectProxy       = $False                    #if set to $False, unchecks the 'Automatically detect proxy settings' setting in IE; this greatly enhanced WebDav performance, set to true to not modify this IE setting (leave as is)
 #for each sharepoint site you wish to map 3 comma seperated values are required, the 'clean' url to the library (see example), the desired drive label, and the driveletter
@@ -601,6 +603,7 @@ function storeSettingsToCache{
 
 function queryForAllCreds {
     Param(
+        [Parameter(Mandatory=$true)]$titleText,
         [Parameter(Mandatory=$true)]$introText,
         [Parameter(Mandatory=$true)]$buttonText,
         [Parameter(Mandatory=$true)]$loginLabel,
@@ -608,7 +611,7 @@ function queryForAllCreds {
     )
     $objBalloon = New-Object System.Windows.Forms.NotifyIcon  
     $objBalloon.BalloonTipIcon = "Info" 
-    $objBalloon.BalloonTipTitle = "OneDriveMapper"  
+    $objBalloon.BalloonTipTitle = $titleText 
     $objBalloon.BalloonTipText = "OneDriveMapper - www.lieben.nu" 
     $objBalloon.Visible = $True  
     $objBalloon.ShowBalloonTip(10000) 
@@ -616,7 +619,7 @@ function queryForAllCreds {
     $userForm = New-Object 'System.Windows.Forms.Form' 
     $InitialFormWindowState = New-Object 'System.Windows.Forms.FormWindowState' 
     $Form_StateCorrection_Load= {$userForm.WindowState = $InitialFormWindowState}  
-    $userForm.Text = "OnedriveMapper" 
+    $userForm.Text = $titleText 
     $userForm.Size = New-Object System.Drawing.Size(400,380) 
     $userForm.StartPosition = "CenterScreen" 
     $userForm.AutoSize = $False 
@@ -1142,7 +1145,7 @@ function askForPassword{
         $askAttempts++ 
         log -text "asking user for password" 
         try{ 
-            $password = CustomInputBox "Microsoft Office 365 OneDrive" "Please enter your password for Office 365" -password
+            $password = CustomInputBox $loginformTitleText $passwordFieldText -password
         }catch{ 
             log -text "failed to display a password input box, exiting. $($Error[0])" -fout
             abort_OM              
@@ -1215,7 +1218,7 @@ function askForUserName{
         $askAttempts++ 
         log -text "asking user for login" 
         try{ 
-            $login = CustomInputBox "Microsoft Office 365 OneDrive" "Please enter your login name for Office 365"
+            $login = CustomInputBox $loginformTitleText $loginFieldText
         }catch{ 
             log -text "failed to display a login input box, exiting $($Error[0])" -fout
             abort_OM              
@@ -2397,7 +2400,7 @@ function getUserLogin{
                         $script:userUPN = $login
                     }
                     try{
-                        $res = queryForAllCreds -introText $loginformIntroText -buttonText $buttonText -loginLabel $loginFieldText -passwordLabel $passwordFieldText
+                        $res = queryForAllCreds -titleText $loginformTitleText -introText $loginformIntroText -buttonText $buttonText -loginLabel $loginFieldText -passwordLabel $passwordFieldText
                         if($res[0]){
                             log -text "User login entered: $($res[0]), storing..."
                             $rez = retrieveLogin -cacheLogin $res[0]
@@ -2738,7 +2741,7 @@ if($showProgressBar) {
 
     # create label
     $label1 = New-Object system.Windows.Forms.Label
-    $label1.text="OnedriveMapper v$version is connecting your drives..."
+    $label1.text=$progressBarText
     $label1.Name = "label1"
     $label1.Left=0
     $label1.Top= 9
