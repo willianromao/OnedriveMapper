@@ -1620,6 +1620,7 @@ function loginV2(){
         log -text "Unable to find user realm due to $($Error[0])" -fout
         return $False
     }
+
     if(!$adfsSmartLink){
         $jsonRealmConfig = ConvertFrom-Json20 -item $res.Content
         $iwaEndpoint = $iwaEndpoint -replace  [regex]::escape("{0}"),$jsonRealmConfig.DomainName
@@ -1912,10 +1913,32 @@ function loginV2(){
 		}
     }
 
+    ##AT this point, authentication should have succeeded, but redirects need to be followed an may differ per type of tenant
+
     #some customers have a redirect active to Onedrive for Business, check if we're already there and return true if so
     if($res.rawResponse.ResponseUri.OriginalString.IndexOf("/personal/") -ne -1){
         log -text "Logged into Office 365! Already redirected to Onedrive for Business"
         return $True
+    }
+
+    #check for the sign in method directly to office.com
+    $nextURL = returnEnclosedFormValue -res $res -searchString "form method=`"POST`" name=`"hiddenform`" action=`""
+    $nextURL = [System.Web.HttpUtility]::HtmlDecode($nextURL)
+    $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
+    $id_token = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"id_token`" value=`""
+    $state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"state`" value=`""
+    $session_state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"session_state`" value=`""
+    if($nextURL -ne -1 -and $id_token -ne -1){
+        log -text "Detected a redirect to Office.com, following..."
+        $body = "code=$([System.Web.HttpUtility]::UrlEncode($code))&id_token=$([System.Web.HttpUtility]::UrlEncode($id_token))&state=$([System.Web.HttpUtility]::UrlEncode($state))&session_state=$([System.Web.HttpUtility]::UrlEncode($session_state))"
+        try{
+            $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"  
+            log -text "Logged into Office 365!"
+            return $True
+        }catch{
+            log -text "Error detected while following redirect, check the FAQ for help" -fout
+            return $False            
+        }
     }
 
     #we should be back at an O365 page now, depending on the sign in method we may still have to follow a redirect
@@ -1929,31 +1952,9 @@ function loginV2(){
             log -text "Logged into Office 365!"
             return $True
         }catch{
-            log -text "Error detected while following redirect" -fout
+            log -text "Error detected while following redirect, check the FAQ for help" -fout
             return $False
         }    
-        $foundRedirect=$True
-    }
-
-    $nextURL = $Null
-    if((returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`"" -decode) -ne -1){
-        $nextURL = returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`"" -decode
-        $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
-        $id_token = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"id_token`" value=`""
-        $session_state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"session_state`" value=`""
-        $state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"state`" value=`""
-        $body = "code=$code&id_token=$id_token&session_state=$session_state"
-        if($nextURL.Length -gt 10){
-            log -text "Following modern Redirect"
-            try{
-                $res = JosL-WebRequest -url $nextURL -Method POST -body $body
-                log -text "Logged into Office 365!"
-                return $True
-            }catch{
-                log -text "Error detected while following redirect" -fout
-                return $False
-            }
-        }
     }
 }
 
@@ -1970,29 +1971,17 @@ function login(){
     #click to open up the login menu 
     try{
         #try to trigger going back to the old signin method
-        (getElementById -id "uxOptOutLink").Click()
+        (getElementById -id "uxOptInLink").Click()
         waitForIE
-        log -text "Found sign in elements new method on Office 365 login page, trying to redirect to old method" 
+        log -text "Found sign in elements new method on Office 365 login page, trying to redirect to new method" 
     }catch{
-        log -text "Failed to find signin element type new method on Office 365 login page, trying next method. Error details: $($Error[0])"
+        log -text "No redirect to new sign in method detected"
     }
     try{
-        (getElementById -id "use_another_account").Click()
+        (getElementById -id "otherTileText").Click()
         log -text "Found sign in elements type 1 on Office 365 login page, proceeding" 
     }catch{
-        log -text "Failed to find signin element type 1 on Office 365 login page, trying next method. Error details: $($Error[0])"
-    }
-    try{
-        (getElementById -id "use_another_account_link").click() 
-        log -text "Found sign in elements type 2 on Office 365 login page, proceeding" 
-    }catch{
-        log -text "Failed to find signin element type 2 on Office 365 login page, trying next method. Error details: $($Error[0])"
-    }
-    try{
-        $Null = getElementById -id "cred_keep_me_signed_in_checkbox"
-        log -text "Found sign in elements type 3 on Office 365 login page, proceeding" 
-    }catch{
-        log -text "Failed to find signin element type 3 at $($script:ie.LocationURL). You may have to upgrade to a later Powershell version or Install Office. Attempting to log in anyway, this will likely fail. Error details: $($Error[0])" -fout
+        log -text "Failed to find signin element type 1 on Office 365 login page. Error details: $($Error[0])"
     }
     waitForIE 
  
@@ -2003,26 +1992,21 @@ function login(){
     #attempt to trigger redirect to detect if we're using ADFS automatically 
     try{ 
         log -text "attempting to trigger a redirect to SSO Provider using method 1" 
-        $checkBox = getElementById -id "cred_keep_me_signed_in_checkbox"
-        if($checkBox.checked -eq $False){
-            $checkBox.click() 
-            log -text "Signin Option persistence selected"
-        }else{
-            log -text "Signin Option persistence was already selected"
-        }
-        if($checkBox.checked -eq $False){
-            log -text "the cred_keep_me_signed_in_checkbox is not selected! This may result in error 224" -fout
-        }
-        (getElementById -id "cred_userid_inputtext").value = $userName       
+        (getElementById -id "i0116").value = $userName      
+        (getElementById -id "i0116").innerText = $userName 
         waitForIE 
-        (getElementById -id "cred_password_inputtext").click() 
+        (getElementById -id "idSIButton9").click() 
         waitForIE
     }catch{ 
-        log -text "Failed to find the correct controls at $($script:ie.LocationURL) to log in by script, check your browser and proxy settings or check for an update of this script. $($Error[0])" -fout
+        log -text "Failed to find the correct controls at $($script:ie.LocationURL) to log in by script, check your browser and proxy settings or check for an update of this script or switch to Native mode. $($Error[0])" -fout
         $script:errorsForUser += "Mapping cannot continue because we could not log in to Office 365`n"
         return $False
     } 
     sleep -s 2 
+    try{
+        (getElementById -id "aadTileTitle").click()
+        log -text "Work account selected"
+    }catch{$Null}
 
     #update progress bar
     if($showProgressBar) {
@@ -2090,7 +2074,7 @@ function login(){
         while($pwdAttempts -lt 3){
             $pwdAttempts++
             try{ 
-                $checkBox = getElementById -id "cred_keep_me_signed_in_checkbox"
+                $checkBox = getElementById -id "idChkBx_PWD_KMSI0Pwd"
                 if($checkBox.checked -eq $False){
                     $checkBox.click() 
                     log -text "Signin Option persistence selected"
@@ -2100,13 +2084,18 @@ function login(){
                 if($pwdAttempts -gt 1){
                     if($userLookupMode -eq 4){
                         $userName = (retrieveLogin -forceNewUsername)
-                        (getElementById -id "cred_userid_inputtext").value = $userName
+                        (getElementById -id "i0116").value = $userName      
+                        (getElementById -id "i0116").innerText = $userName 
                     }
-                    (getElementById -id "cred_password_inputtext").value = retrievePassword -forceNewPassword
+                    $newPwd = retrievePassword -forceNewPassword
+                    (getElementById -id "i0118").value = $newPwd 
+                    (getElementById -id "i0118").innerText = $newPwd
                 }else{
-                    (getElementById -id "cred_password_inputtext").value = retrievePassword 
+                    $newPwd = retrievePassword 
+                    (getElementById -id "i0118").value = $newPwd 
+                    (getElementById -id "i0118").innerText = $newPwd 
                 }
-                (getElementById -id "cred_sign_in_button").click() 
+                (getElementById -id "idSIButton9").click() 
                 waitForIE
             }catch{ 
                 if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs)){
