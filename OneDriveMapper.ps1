@@ -11,7 +11,6 @@
 
 #TODO:
 #explorer restart only if logon process complete? https://gallery.technet.microsoft.com/scriptcenter/Analyze-Session-Logon-63e02691
-#fallback mode window hide?
 #auto update replace config ID issue
 #optionally, use PSDrive
 #AzureADSSO for IE retest, device cert
@@ -20,7 +19,6 @@
 #explanation video of all settings
 #optionally don't display version check information
 #adfs login velden robuuster opzoeken
-#http://stackoverflow.com/questions/7530734/creating-a-cookie-outside-of-a-web-browser-e-g-with-vbscript
 #decrypt stored password on different pc's
 #handle MFA in native auth mode
 
