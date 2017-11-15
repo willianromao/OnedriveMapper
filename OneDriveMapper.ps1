@@ -1606,6 +1606,17 @@ function loginV2(){
             }else{
                 $res = $tryAgainRes
             }
+            $stsRequest = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"ctx`" value=`""
+            if($stsRequest -eq -1){ #we're seeing a new forward method, so we should find the login URL Microsoft suggests
+                log -text "no STS request detected in response, checking for urlLogin parameter..."
+                $urlLogin = returnEnclosedFormValue -res $res -searchString "`"urlLogin`":`""
+                if($urlLogin.StartsWith("https://")){
+                    log -text "urlLogin parameter found, following...."
+                    $res = JosL-WebRequest -url $urlLogin -Method GET            
+                }else{
+                    Throw "no urlLogin parameter found, login has FAILED"
+                }
+            }
             $apiCanary = returnEnclosedFormValue -res $res -searchString "`"apiCanary`":`""
             $iwaEndpoint = returnEnclosedFormValue -res $res -searchString "iwaEndpointUrlFormat: `""
             $clientId = returnEnclosedFormValue -res $res -searchString "correlationId`":`""
