@@ -11,7 +11,6 @@
 
 #TODO:
 #explorer restart only if logon process complete? https://gallery.technet.microsoft.com/scriptcenter/Analyze-Session-Logon-63e02691
-#fallback mode window hide?
 #auto update replace config ID issue
 #optionally, use PSDrive
 #AzureADSSO for IE retest, device cert
@@ -20,7 +19,6 @@
 #explanation video of all settings
 #optionally don't display version check information
 #adfs login velden robuuster opzoeken
-#http://stackoverflow.com/questions/7530734/creating-a-cookie-outside-of-a-web-browser-e-g-with-vbscript
 #decrypt stored password on different pc's
 #handle MFA in native auth mode
 
@@ -71,6 +69,7 @@ $adfsSmartLink         = $Null                     #If set, the ADFS smartlink w
 $displayErrors         = $True                     #show errors to user in visual popups
 $persistentMapping     = $True                     #If set to $False, the mapping will go away when the user logs off
 $buttonText            = "Login"                   #Text of the button on the password input popup box
+$loginformTitleText    = "OneDriveMapper"          #Used as the window title for input popup boxes (userLookupMode is set to 4) and login forms (userLookupMode is set to 6)
 $loginformIntroText    = "Welcome to COMPANY NAME`r`nPlease enter your login and password" #used as introduction text when you set userLookupMode to 6
 $loginFieldText        = "Please enter your login in the form of xxx@xxx.com" #used as label above the login text field when you set userLookupMode to 6
 $passwordFieldText     = "Please enter your password" #used as label above the password text field when you set userLookupMode to 6
@@ -84,6 +83,7 @@ $sharepointMappings    = @()
 $sharepointMappings    += "https://ogd.sharepoint.com/site1/documentsLibrary,ExampleLabel,Y:"
 $showProgressBar       = $True                     #will show a progress bar to the user
 $progressBarColor      = "#CC99FF"
+$progressBarText       = "OnedriveMapper v$version is connecting your drives..."
 $versionCheck          = $False                     #will check if running the latest version, if not, this will be logged to the logfile, no personal data is transmitted.
 $autoDetectProxy       = $False                    #if set to $False, unchecks the 'Automatically detect proxy settings' setting in IE; this greatly enhanced WebDav performance, set to true to not modify this IE setting (leave as is)
 #for each sharepoint site you wish to map 3 comma seperated values are required, the 'clean' url to the library (see example), the desired drive label, and the driveletter
@@ -603,6 +603,7 @@ function storeSettingsToCache{
 
 function queryForAllCreds {
     Param(
+        [Parameter(Mandatory=$true)]$titleText,
         [Parameter(Mandatory=$true)]$introText,
         [Parameter(Mandatory=$true)]$buttonText,
         [Parameter(Mandatory=$true)]$loginLabel,
@@ -610,7 +611,7 @@ function queryForAllCreds {
     )
     $objBalloon = New-Object System.Windows.Forms.NotifyIcon  
     $objBalloon.BalloonTipIcon = "Info" 
-    $objBalloon.BalloonTipTitle = "OneDriveMapper"  
+    $objBalloon.BalloonTipTitle = $titleText 
     $objBalloon.BalloonTipText = "OneDriveMapper - www.lieben.nu" 
     $objBalloon.Visible = $True  
     $objBalloon.ShowBalloonTip(10000) 
@@ -618,7 +619,7 @@ function queryForAllCreds {
     $userForm = New-Object 'System.Windows.Forms.Form' 
     $InitialFormWindowState = New-Object 'System.Windows.Forms.FormWindowState' 
     $Form_StateCorrection_Load= {$userForm.WindowState = $InitialFormWindowState}  
-    $userForm.Text = "OnedriveMapper" 
+    $userForm.Text = $titleText 
     $userForm.Size = New-Object System.Drawing.Size(400,380) 
     $userForm.StartPosition = "CenterScreen" 
     $userForm.AutoSize = $False 
@@ -1144,7 +1145,7 @@ function askForPassword{
         $askAttempts++ 
         log -text "asking user for password" 
         try{ 
-            $password = CustomInputBox "Microsoft Office 365 OneDrive" "Please enter your password for Office 365" -password
+            $password = CustomInputBox $loginformTitleText $passwordFieldText -password
         }catch{ 
             log -text "failed to display a password input box, exiting. $($Error[0])" -fout
             abort_OM              
@@ -1217,7 +1218,7 @@ function askForUserName{
         $askAttempts++ 
         log -text "asking user for login" 
         try{ 
-            $login = CustomInputBox "Microsoft Office 365 OneDrive" "Please enter your login name for Office 365"
+            $login = CustomInputBox $loginformTitleText $loginFieldText
         }catch{ 
             log -text "failed to display a login input box, exiting $($Error[0])" -fout
             abort_OM              
@@ -1605,6 +1606,17 @@ function loginV2(){
             }else{
                 $res = $tryAgainRes
             }
+            $stsRequest = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"ctx`" value=`""
+            if($stsRequest -eq -1){ #we're seeing a new forward method, so we should find the login URL Microsoft suggests
+                log -text "no STS request detected in response, checking for urlLogin parameter..."
+                $urlLogin = returnEnclosedFormValue -res $res -searchString "`"urlLogin`":`""
+                if($urlLogin.StartsWith("https://")){
+                    log -text "urlLogin parameter found, following...."
+                    $res = JosL-WebRequest -url $urlLogin -Method GET            
+                }else{
+                    Throw "no urlLogin parameter found, login has FAILED"
+                }
+            }
             $apiCanary = returnEnclosedFormValue -res $res -searchString "`"apiCanary`":`""
             $iwaEndpoint = returnEnclosedFormValue -res $res -searchString "iwaEndpointUrlFormat: `""
             $clientId = returnEnclosedFormValue -res $res -searchString "correlationId`":`""
@@ -1620,6 +1632,7 @@ function loginV2(){
         log -text "Unable to find user realm due to $($Error[0])" -fout
         return $False
     }
+
     if(!$adfsSmartLink){
         $jsonRealmConfig = ConvertFrom-Json20 -item $res.Content
         $iwaEndpoint = $iwaEndpoint -replace  [regex]::escape("{0}"),$jsonRealmConfig.DomainName
@@ -1912,10 +1925,32 @@ function loginV2(){
 		}
     }
 
+    ##AT this point, authentication should have succeeded, but redirects need to be followed an may differ per type of tenant
+
     #some customers have a redirect active to Onedrive for Business, check if we're already there and return true if so
     if($res.rawResponse.ResponseUri.OriginalString.IndexOf("/personal/") -ne -1){
         log -text "Logged into Office 365! Already redirected to Onedrive for Business"
         return $True
+    }
+
+    #check for the sign in method directly to office.com
+    $nextURL = returnEnclosedFormValue -res $res -searchString "form method=`"POST`" name=`"hiddenform`" action=`""
+    $nextURL = [System.Web.HttpUtility]::HtmlDecode($nextURL)
+    $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
+    $id_token = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"id_token`" value=`""
+    $state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"state`" value=`""
+    $session_state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"session_state`" value=`""
+    if($nextURL -ne -1 -and $id_token -ne -1){
+        log -text "Detected a redirect to Office.com, following..."
+        $body = "code=$([System.Web.HttpUtility]::UrlEncode($code))&id_token=$([System.Web.HttpUtility]::UrlEncode($id_token))&state=$([System.Web.HttpUtility]::UrlEncode($state))&session_state=$([System.Web.HttpUtility]::UrlEncode($session_state))"
+        try{
+            $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"  
+            log -text "Logged into Office 365!"
+            return $True
+        }catch{
+            log -text "Error detected while following redirect, check the FAQ for help" -fout
+            return $False            
+        }
     }
 
     #we should be back at an O365 page now, depending on the sign in method we may still have to follow a redirect
@@ -1929,31 +1964,9 @@ function loginV2(){
             log -text "Logged into Office 365!"
             return $True
         }catch{
-            log -text "Error detected while following redirect" -fout
+            log -text "Error detected while following redirect, check the FAQ for help" -fout
             return $False
         }    
-        $foundRedirect=$True
-    }
-
-    $nextURL = $Null
-    if((returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`"" -decode) -ne -1){
-        $nextURL = returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`"" -decode
-        $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
-        $id_token = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"id_token`" value=`""
-        $session_state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"session_state`" value=`""
-        $state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"state`" value=`""
-        $body = "code=$code&id_token=$id_token&session_state=$session_state"
-        if($nextURL.Length -gt 10){
-            log -text "Following modern Redirect"
-            try{
-                $res = JosL-WebRequest -url $nextURL -Method POST -body $body
-                log -text "Logged into Office 365!"
-                return $True
-            }catch{
-                log -text "Error detected while following redirect" -fout
-                return $False
-            }
-        }
     }
 }
 
@@ -1970,29 +1983,17 @@ function login(){
     #click to open up the login menu 
     try{
         #try to trigger going back to the old signin method
-        (getElementById -id "uxOptOutLink").Click()
+        (getElementById -id "uxOptInLink").Click()
         waitForIE
-        log -text "Found sign in elements new method on Office 365 login page, trying to redirect to old method" 
+        log -text "Found sign in elements new method on Office 365 login page, trying to redirect to new method" 
     }catch{
-        log -text "Failed to find signin element type new method on Office 365 login page, trying next method. Error details: $($Error[0])"
+        log -text "No redirect to new sign in method detected"
     }
     try{
-        (getElementById -id "use_another_account").Click()
+        (getElementById -id "otherTileText").Click()
         log -text "Found sign in elements type 1 on Office 365 login page, proceeding" 
     }catch{
-        log -text "Failed to find signin element type 1 on Office 365 login page, trying next method. Error details: $($Error[0])"
-    }
-    try{
-        (getElementById -id "use_another_account_link").click() 
-        log -text "Found sign in elements type 2 on Office 365 login page, proceeding" 
-    }catch{
-        log -text "Failed to find signin element type 2 on Office 365 login page, trying next method. Error details: $($Error[0])"
-    }
-    try{
-        $Null = getElementById -id "cred_keep_me_signed_in_checkbox"
-        log -text "Found sign in elements type 3 on Office 365 login page, proceeding" 
-    }catch{
-        log -text "Failed to find signin element type 3 at $($script:ie.LocationURL). You may have to upgrade to a later Powershell version or Install Office. Attempting to log in anyway, this will likely fail. Error details: $($Error[0])" -fout
+        log -text "Failed to find signin element type 1 on Office 365 login page. Error details: $($Error[0])"
     }
     waitForIE 
  
@@ -2003,26 +2004,21 @@ function login(){
     #attempt to trigger redirect to detect if we're using ADFS automatically 
     try{ 
         log -text "attempting to trigger a redirect to SSO Provider using method 1" 
-        $checkBox = getElementById -id "cred_keep_me_signed_in_checkbox"
-        if($checkBox.checked -eq $False){
-            $checkBox.click() 
-            log -text "Signin Option persistence selected"
-        }else{
-            log -text "Signin Option persistence was already selected"
-        }
-        if($checkBox.checked -eq $False){
-            log -text "the cred_keep_me_signed_in_checkbox is not selected! This may result in error 224" -fout
-        }
-        (getElementById -id "cred_userid_inputtext").value = $userName       
+        (getElementById -id "i0116").value = $userName      
+        (getElementById -id "i0116").innerText = $userName 
         waitForIE 
-        (getElementById -id "cred_password_inputtext").click() 
+        (getElementById -id "idSIButton9").click() 
         waitForIE
     }catch{ 
-        log -text "Failed to find the correct controls at $($script:ie.LocationURL) to log in by script, check your browser and proxy settings or check for an update of this script. $($Error[0])" -fout
+        log -text "Failed to find the correct controls at $($script:ie.LocationURL) to log in by script, check your browser and proxy settings or check for an update of this script or switch to Native mode. $($Error[0])" -fout
         $script:errorsForUser += "Mapping cannot continue because we could not log in to Office 365`n"
         return $False
     } 
     sleep -s 2 
+    try{
+        (getElementById -id "aadTileTitle").click()
+        log -text "Work account selected"
+    }catch{$Null}
 
     #update progress bar
     if($showProgressBar) {
@@ -2090,7 +2086,7 @@ function login(){
         while($pwdAttempts -lt 3){
             $pwdAttempts++
             try{ 
-                $checkBox = getElementById -id "cred_keep_me_signed_in_checkbox"
+                $checkBox = getElementById -id "idChkBx_PWD_KMSI0Pwd"
                 if($checkBox.checked -eq $False){
                     $checkBox.click() 
                     log -text "Signin Option persistence selected"
@@ -2100,13 +2096,18 @@ function login(){
                 if($pwdAttempts -gt 1){
                     if($userLookupMode -eq 4){
                         $userName = (retrieveLogin -forceNewUsername)
-                        (getElementById -id "cred_userid_inputtext").value = $userName
+                        (getElementById -id "i0116").value = $userName      
+                        (getElementById -id "i0116").innerText = $userName 
                     }
-                    (getElementById -id "cred_password_inputtext").value = retrievePassword -forceNewPassword
+                    $newPwd = retrievePassword -forceNewPassword
+                    (getElementById -id "i0118").value = $newPwd 
+                    (getElementById -id "i0118").innerText = $newPwd
                 }else{
-                    (getElementById -id "cred_password_inputtext").value = retrievePassword 
+                    $newPwd = retrievePassword 
+                    (getElementById -id "i0118").value = $newPwd 
+                    (getElementById -id "i0118").innerText = $newPwd 
                 }
-                (getElementById -id "cred_sign_in_button").click() 
+                (getElementById -id "idSIButton9").click() 
                 waitForIE
             }catch{ 
                 if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs)){
@@ -2410,7 +2411,7 @@ function getUserLogin{
                         $script:userUPN = $login
                     }
                     try{
-                        $res = queryForAllCreds -introText $loginformIntroText -buttonText $buttonText -loginLabel $loginFieldText -passwordLabel $passwordFieldText
+                        $res = queryForAllCreds -titleText $loginformTitleText -introText $loginformIntroText -buttonText $buttonText -loginLabel $loginFieldText -passwordLabel $passwordFieldText
                         if($res[0]){
                             log -text "User login entered: $($res[0]), storing..."
                             $rez = retrieveLogin -cacheLogin $res[0]
@@ -2751,7 +2752,7 @@ if($showProgressBar) {
 
     # create label
     $label1 = New-Object system.Windows.Forms.Label
-    $label1.text="OnedriveMapper v$version is connecting your drives..."
+    $label1.text=$progressBarText
     $label1.Name = "label1"
     $label1.Left=0
     $label1.Top= 9
