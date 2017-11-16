@@ -1679,32 +1679,55 @@ function loginV2(){
 
     #authenticate using New Managed Mode
     if($mode -eq "New_Managed"){
-        try{
-            $body = "i13=0&login=$userUPN&loginfmt=$userUPN&type=11&LoginOptions=3&passwd=Tuya7154&ps=2&canary=$newCanary&ctx=$cstsRequest&flowToken=$sFT&NewUser=1&fspost=0&i21=0&CookieDisclosure=0&i2=1&i19=41303"
-            log -text "authenticating using new managed mode"
-            $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/login" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri        
-        }catch{
-            log -text "error received while posting to login page" -fout
-        }
-        if($res.rawResponse.ResponseUri.AbsoluteUri.StartsWith("https://login.microsoftonline.com/common/login")){
-            #still at login page
-            if($res.Content.IndexOf("<meta name=`"PageID`" content=`"KmsiInterrupt`"") -ne -1){
-                #we're at the KMSI prompt, let's handle that
-                log -text "KMSI prompt detected"
-                $body = "LoginOptions=1&ctx=$cstsRequestEnc&flowToken=$apiCanaryEnc&canary=$canary&DontShowAgain=true&i19=2759"
-                try{
-                    log -text "sending cookie persistence request"
-                    $res = JosL-WebRequest -url "https://login.microsoftonline.com/kmsi" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri        
-                }catch{$Null}
+        $attempts = 0
+        while($true){
+            if($attempts -gt 2){
+                log -text "Failed to log you in with the supplied credentials after 3 attempts, aborting" -fout
+                return $False
             }
-        }
-        
-        $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
-        if($res.rawResponse.ResponseUri.AbsoluteUri.StartsWith("https://login.microsoftonline.com") -and $code -ne -1){
-            #we reached a landing page, but there is a redirect left, which is handled later in this script
-            log -text "Redirect detected..."
-        }else{
-            log -text "unknown failure, fiddler logs required" -fout
+            if($attempts -gt 0){
+                #we didn't get logged in
+                log -text "Failed to log you in with the supplied password, asking for (new) password" -fout
+                $password = retrievePassword -forceNewPassword
+                $passwordEnc = [System.Web.HttpUtility]::UrlEncode($password)
+            }else{
+                $password = retrievePassword
+                $passwordEnc = [System.Web.HttpUtility]::UrlEncode($password)
+            }
+            try{
+                $body = "i13=0&login=$userUPN&loginfmt=$userUPN&type=11&LoginOptions=3&passwd=$passwordEnc&ps=2&canary=$newCanary&ctx=$cstsRequest&flowToken=$sFT&NewUser=1&fspost=0&i21=0&CookieDisclosure=0&i2=1&i19=41303"
+                log -text "authenticating using new managed mode"
+                $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/login" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri        
+            }catch{
+                log -text "error received while posting to login page" -fout
+            }
+            if($res.rawResponse.ResponseUri.AbsoluteUri.StartsWith("https://login.microsoftonline.com/common/login")){
+                #still at login page
+                if($res.Content.IndexOf("<meta name=`"PageID`" content=`"KmsiInterrupt`"") -ne -1){
+                    #we're at the KMSI prompt, let's handle that
+                    log -text "KMSI prompt detected"
+                    $cstsRequest = returnEnclosedFormValue -res $res -searchString "`",`"sCtx`":`""
+                    $cstsRequest = [System.Web.HttpUtility]::UrlEncode($cstsRequest)
+                    $sFT = returnEnclosedFormValue -res $res -searchString "`",`"sFT`":`""
+                    $sFT = [System.Web.HttpUtility]::UrlEncode($sFT)
+                    $newCanary = returnEnclosedFormValue -res $res -searchString "`",`"apiCanary`":`""
+                    $newCanary = [System.Web.HttpUtility]::UrlEncode($newCanary)
+                    $body = "LoginOptions=1&ctx=$cstsRequest&flowToken=$sFT&canary=$newCanary&DontShowAgain=true&i19=2759"
+                    try{
+                        log -text "sending cookie persistence request"
+                        $res = JosL-WebRequest -url "https://login.microsoftonline.com/kmsi" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri        
+                    }catch{$Null}
+                }
+            }
+            $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
+            if($res.rawResponse.ResponseUri.AbsoluteUri.StartsWith("https://login.microsoftonline.com") -and $code -ne -1){
+                #we reached a landing page, but there is a redirect left, which is handled later in this script
+                log -text "Redirect detected..."
+                break
+            }else{
+                log -text "Failure during attempt $attempts, fiddler logs may be required" -fout
+            }
+            $attempts++
         }
     }
 
