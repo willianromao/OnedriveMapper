@@ -1654,7 +1654,14 @@ function loginV2(){
         if($jsonRealmConfig.NameSpaceType -eq $Null){
             #handle new realm discovery response
             #default to Managed until I get an ADFS example
-            $mode = "New_Managed"
+            if($jsonRealmConfig.Credentials.FederationRedirectUrl.StartsWith("https://")){
+                $mode = "Federated"
+                $nextURL = $jsonRealmConfig.Credentials.FederationRedirectUrl
+                log -text "Received API response for authentication method: Federated"
+                log -text "Authentication target: $nextURL"
+            }else{
+                $mode = "New_Managed"
+            }
             $flowToken = $jsonRealmConfig.apiCanary
         }else{
             #handle old realm discovery response
@@ -1936,10 +1943,10 @@ function loginV2(){
             log -text "Federation Services did not sign us in automatically, retrieving user credentials.." -warning
             $password = retrievePassword
             $passwordEnc = [System.Web.HttpUtility]::HtmlEncode($password)
-            $ADFShost = $jsonRealmConfig.AuthURL.SubString(0,$jsonRealmConfig.AuthURL.IndexOf("adfs/ls"))
+            $ADFShost = $res.rawResponse.ResponseUri.host
             $nextURL = returnEnclosedFormValue -res $res -searchString "<form method=`"post`" id=`"loginForm`" autocomplete=`"off`" novalidate=`"novalidate`" onKeyPress=`"if (event && event.keyCode == 13) Login.submitLoginRequest();`" action=`"/" -decode
             if($nextURL.IndexOf("https:") -eq -1){
-                $nextURL = "$($ADFShost)$($nextURL)"
+                $nextURL = "https://$($ADFShost)/$($nextURL)"
             }
             $userName = $userUPN
             $attempts = 0
