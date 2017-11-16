@@ -5,9 +5,7 @@
 #Company:           OGD (http://www.ogd.nl) 
 #Script help:       http://www.lieben.nu, please provide a decrypted Fiddler Trace Log if you're using Native auth and having issues
 #Purpose:           This script maps Onedrive for Business and maps a configurable number of Sharepoint Libraries
-#Enterprise users:  A special version of OnedriveMapper per MSI (or ps1) is available that allows central (re)configuration of all options set below
-#Enterprise users:  In addition, the cloud version can automatically update itself and you can centrally switch the authentication methode without a new rollout
-#Enterprise users:  Finally, enterprise users receive email notifications of new versions
+#Enterprise users:  This script is not recommended for Enterprise use as no dedicated support is available. Check www.lieben.nu for enterprise options.
 
 #TODO:
 #explorer restart only if logon process complete? https://gallery.technet.microsoft.com/scriptcenter/Analyze-Session-Logon-63e02691
