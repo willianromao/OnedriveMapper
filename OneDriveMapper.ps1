@@ -1611,7 +1611,7 @@ function loginV2(){
                 log -text "no STS request detected in response, checking for urlLogin parameter..."
                 $urlLogin = returnEnclosedFormValue -res $res -searchString "`"urlLogin`":`""
                 if($urlLogin.StartsWith("https://")){
-                    log -text "urlLogin parameter found, following...."
+                    log -text "urlLogin parameter found, following once...."
                     $res = JosL-WebRequest -url $urlLogin -Method GET            
                 }else{
                     Throw "no urlLogin parameter found, login has FAILED"
@@ -1622,11 +1622,26 @@ function loginV2(){
             $clientId = returnEnclosedFormValue -res $res -searchString "correlationId`":`""
             #vind session code en gebruik deze om het realm van de user te vinden
             $stsRequest = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"ctx`" value=`""
+            $cstsRequest = returnEnclosedFormValue -res $res -searchString "`",`"sCtx`":`""
             $flowToken = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"flowToken`" value=`""
+            $sFT = returnEnclosedFormValue -res $res -searchString "`"sFT`":`""
             $canary = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"canary`" value=`""
+            $newCanary = returnEnclosedFormValue -res $res -searchString "`"canary`":`""
             #URL encode the canary for POST request
             $canary = [System.Web.HttpUtility]::UrlEncode($canary)
-            $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/userrealm?user=$uidEnc&api-version=2.1&stsRequest=$stsRequest&checkForMicrosoftAccount=false" -Method GET
+            $newCanary = [System.Web.HttpUtility]::UrlEncode($newCanary)
+            #this is the new realm discovery endpoint:
+            $customHeaders = @{"canary" = $apiCanary;"hpgid" = "1104";"hpgact" = "1800";"client-request-id"=$clientId}
+            $JSON = @{"username"="$userUPN";"isOtherIdpSupported"=$true;"checkPhones"=$false;"isRemoteNGCSupported"=$false;"isCookieBannerShown"=$false;"isFidoSupported"=$false;"originalRequest"="$cstsRequest"}
+            $JSON = ConvertTo-Json20 -item $JSON
+            try{
+                $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/GetCredentialType" -Method POST -body $JSON -customHeaders $customHeaders -referer $res.rawResponse.ResponseUri.AbsoluteUri
+                log -text "New realm discovery method succeeded"
+            }catch{
+                log -text "New realm discovery method failed" -warning
+                $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/userrealm?user=$uidEnc&api-version=2.1&stsRequest=$stsRequest&checkForMicrosoftAccount=false" -Method GET
+                log -text "Old realm discovery method succeeded"
+            }
         }
     }catch{
         log -text "Unable to find user realm due to $($Error[0])" -fout
@@ -1635,24 +1650,62 @@ function loginV2(){
 
     if(!$adfsSmartLink){
         $jsonRealmConfig = ConvertFrom-Json20 -item $res.Content
-        $iwaEndpoint = $iwaEndpoint -replace  [regex]::escape("{0}"),$jsonRealmConfig.DomainName
         $mode = $Null
-        if($jsonRealmConfig.NameSpaceType -eq "Managed"){
-            $mode = "Managed"
-            log -text "Received API response for authentication method: Managed"
-            if($jsonRealmConfig.is_dsso_enabled){
-                $azureADSSOEnabled = $True
-                log -text "Additionally, Azure AD SSO and/or PassThrough is enabled for your tenant"
+        if($jsonRealmConfig.NameSpaceType -eq $Null){
+            #handle new realm discovery response
+            #default to Managed until I get an ADFS example
+            $mode = "New_Managed"
+            $flowToken = $jsonRealmConfig.apiCanary
+        }else{
+            #handle old realm discovery response
+            if($jsonRealmConfig.NameSpaceType -eq "Managed"){
+                $mode = "Managed"
+                log -text "Received API response for authentication method: Managed"
+                if($jsonRealmConfig.is_dsso_enabled){
+                    $azureADSSOEnabled = $True
+                    log -text "Additionally, Azure AD SSO and/or PassThrough is enabled for your tenant"
+                }
+                $nextURL = "https://login.microsoftonline.com/common/login"
             }
-            $nextURL = "https://login.microsoftonline.com/common/login"
+            if($jsonRealmConfig.NameSpaceType -eq "Federated"){
+                $mode = "Federated"
+                $nextURL = $jsonRealmConfig.AuthURL
+                log -text "Received API response for authentication method: Federated"
+                log -text "Authentication target: $nextURL"
+            }
+            $uidEnc = [System.Web.HttpUtility]::HtmlEncode($jsonRealmConfig.Login)
         }
-        if($jsonRealmConfig.NameSpaceType -eq "Federated"){
-            $mode = "Federated"
-            $nextURL = $jsonRealmConfig.AuthURL
-            log -text "Received API response for authentication method: Federated"
-            log -text "Authentication target: $nextURL"
+    }
+
+    #authenticate using New Managed Mode
+    if($mode -eq "New_Managed"){
+        try{
+            $body = "i13=0&login=$userUPN&loginfmt=$userUPN&type=11&LoginOptions=3&passwd=Tuya7154&ps=2&canary=$newCanary&ctx=$cstsRequest&flowToken=$sFT&NewUser=1&fspost=0&i21=0&CookieDisclosure=0&i2=1&i19=41303"
+            log -text "authenticating using new managed mode"
+            $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/login" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri        
+        }catch{
+            log -text "error received while posting to login page" -fout
         }
-        $uidEnc = [System.Web.HttpUtility]::HtmlEncode($jsonRealmConfig.Login)
+        if($res.rawResponse.ResponseUri.AbsoluteUri.StartsWith("https://login.microsoftonline.com/common/login")){
+            #still at login page
+            if($res.Content.IndexOf("<meta name=`"PageID`" content=`"KmsiInterrupt`"") -ne -1){
+                #we're at the KMSI prompt, let's handle that
+                log -text "KMSI prompt detected"
+                $body = "LoginOptions=1&ctx=$cstsRequestEnc&flowToken=$apiCanaryEnc&canary=$canary&DontShowAgain=true&i19=2759"
+                try{
+                    log -text "sending cookie persistence request"
+                    $res = JosL-WebRequest -url "https://login.microsoftonline.com/kmsi" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri        
+                }catch{$Null}
+            }
+        }
+        
+        $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
+        if($res.rawResponse.ResponseUri.AbsoluteUri.StartsWith("https://login.microsoftonline.com") -and $code -ne -1){
+            #we reached a landing page, but there is a redirect left, which is handled later in this script
+            log -text "Redirect detected..."
+        }else{
+            log -text "unknown failure, fiddler logs required" -fout
+        }
     }
 
     #authenticate using Managed Mode
