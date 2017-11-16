@@ -1610,12 +1610,12 @@ function loginV2(){
             if($stsRequest -eq -1){ #we're seeing a new forward method, so we should find the login URL Microsoft suggests
                 log -text "no STS request detected in response, checking for urlLogin parameter..."
                 $urlLogin = returnEnclosedFormValue -res $res -searchString "`"urlLogin`":`""
-                if($urlLogin.StartsWith("https://")){
-                    log -text "urlLogin parameter found, following once...."
-                    $res = JosL-WebRequest -url $urlLogin -Method GET            
-                }else{
-                    Throw "no urlLogin parameter found, login has FAILED"
-                }
+                try{
+                    if($urlLogin.StartsWith("https://")){
+                        log -text "urlLogin parameter found, following once...."
+                        $res = JosL-WebRequest -url $urlLogin -Method GET            
+                    }
+                }catch{$Null}
             }
             $apiCanary = returnEnclosedFormValue -res $res -searchString "`"apiCanary`":`""
             $iwaEndpoint = returnEnclosedFormValue -res $res -searchString "iwaEndpointUrlFormat: `""
@@ -1708,7 +1708,7 @@ function loginV2(){
             }catch{
                 log -text "error received while posting to login page" -fout
             }
-            if($res.rawResponse.ResponseUri.AbsoluteUri.StartsWith("https://login.microsoftonline.com/common/login")){
+            if($res.rawResponse.ResponseUri.AbsoluteUri.StartsWith("https://login.microsoftonline.com")){
                 #still at login page
                 if($res.Content.IndexOf("<meta name=`"PageID`" content=`"KmsiInterrupt`"") -ne -1){
                     #we're at the KMSI prompt, let's handle that
@@ -2006,6 +2006,23 @@ function loginV2(){
 			$body = "wa=wsignin1.0&wresult=$wResult"
 			$res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*" 
 		}
+
+        if($res.Content.IndexOf("<meta name=`"PageID`" content=`"KmsiInterrupt`"") -ne -1){
+            #we're at the KMSI prompt, let's handle that
+            log -text "KMSI prompt detected"
+            $cstsRequest = returnEnclosedFormValue -res $res -searchString "`",`"sCtx`":`""
+            $cstsRequest = [System.Web.HttpUtility]::UrlEncode($cstsRequest)
+            $sFT = returnEnclosedFormValue -res $res -searchString "`",`"sFT`":`""
+            $sFT = [System.Web.HttpUtility]::UrlEncode($sFT)
+            $newCanary = returnEnclosedFormValue -res $res -searchString "`",`"apiCanary`":`""
+            $newCanary = [System.Web.HttpUtility]::UrlEncode($newCanary)
+            $body = "LoginOptions=1&ctx=$cstsRequest&flowToken=$sFT&canary=$newCanary&DontShowAgain=true&i19=2759"
+            try{
+                log -text "sending cookie persistence request"
+                $res = JosL-WebRequest -url "https://login.microsoftonline.com/kmsi" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri        
+            }catch{$Null}
+        }
+
     }
 
     ##AT this point, authentication should have succeeded, but redirects need to be followed an may differ per type of tenant
