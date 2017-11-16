@@ -2191,6 +2191,13 @@ function login(){
                 }
                 (getElementById -id "idSIButton9").click() 
                 waitForIE
+                sleep -s 1
+                try{
+                    (getElementById -id "idSIButton9").click() 
+                    waitForIE
+                }catch{
+                    log -text "no KMSI prompt even though we expected one" -warning
+                }
             }catch{ 
                 if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs)){
                     #we've been logged in, we can abort the login function 
