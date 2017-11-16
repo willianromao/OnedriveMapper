@@ -52,7 +52,7 @@ $settingsCache         = ($env:APPDATA + "\OneDriveMapper.cache")    #file to st
 $dontMapO4B            = $False                    #If you're only using Sharepoint Online mappings (see below), set this to True to keep the script from mapping the user's O4B
 $addShellLink          = $False                    #Adds a link to Onedrive to the Shell under Favorites (Windows 7, 8 / 2008R2 and 2012R2 only) If you use a remote path, google EnableShellShortcutIconRemotePath
 $deleteUnmanagedDrives = $True                     #If set to $True, OnedriveMapper checks if there are 'other' mapped drives to Sharepoint Online/Onedrive that OnedriveMapper does not manage, and disconnects them. This is useful if you change a driveletter.
-$debugmode             = $False                    #Set to $True for debugging purposes. You'll be able to see the script navigate in Internet Explorer if you're using IE auth mode
+$debugmode             = $false                    #Set to $True for debugging purposes. You'll be able to see the script navigate in Internet Explorer if you're using IE auth mode
 $userLookupMode        = 1                         #1 = Active Directory UPN, 2 = Active Directory Email, 3 = Azure AD Joined Windows 10, 4 = query user for his/her login, 5 = lookup by registry key, 6 = display full form (ask for both username and login if no cached versions can be found), 7 = whoami /upn
 $AzureAADConnectSSO    = $False                    #NOT NEEDED FOR NATIVE AUTH, if set to True, will automatically remove AzureADSSO registry key before mapping, and then readd them after mapping. Otherwise, mapping fails because AzureADSSO creates a non-persistent cookie
 $lookupUserGroups      = $False                    #Set this to $True if you want to map user security groups to Sharepoint Sites (read below for additional required configuration)
@@ -2169,6 +2169,10 @@ function login(){
                 }else{
                     log -text "Signin Option persistence was already selected"
                 }
+            }catch{
+                log -text "Failed to force sign in persistence" -warning
+            }
+            try{
                 if($pwdAttempts -gt 1){
                     if($userLookupMode -eq 4){
                         $userName = (retrieveLogin -forceNewUsername)
@@ -2182,6 +2186,8 @@ function login(){
                     $newPwd = retrievePassword 
                     (getElementById -id "i0118").value = $newPwd 
                     (getElementById -id "i0118").innerText = $newPwd 
+                    waitForIE
+                    sleep -s 1
                 }
                 (getElementById -id "idSIButton9").click() 
                 waitForIE
