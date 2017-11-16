@@ -1,4 +1,4 @@
-﻿######## 
+######## 
 #OneDriveMapper
 #Copyright:         Free to use, please leave this header intact 
 #Author:            Jos Lieben (OGD)
@@ -77,8 +77,8 @@ $adfsLoginInput        = "userNameInput"           #change to user-signin if usi
 $adfsPwdInput          = "passwordInput"           #change to pass-signin if using Okta, passwordTxt if using RMUnify
 $adfsButton            = "submitButton"            #change to singin-button if using Okta, Submit if using RMUnify
 $urlOpenAfter          = ""                        #This URL will be opened by the script after running if you configure it
-$showConsoleOutput     = $False                     #Set this to $False to hide console output
-$showElevatedConsole   = $False
+$showConsoleOutput     = $True                     #Set this to $False to hide console output
+$showElevatedConsole   = $True
 $sharepointMappings    = @()
 $sharepointMappings    += "https://ogd.sharepoint.com/site1/documentsLibrary,ExampleLabel,Y:"
 $showProgressBar       = $True                     #will show a progress bar to the user
