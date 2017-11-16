@@ -1653,14 +1653,15 @@ function loginV2(){
         $mode = $Null
         if($jsonRealmConfig.NameSpaceType -eq $Null){
             #handle new realm discovery response
-            #default to Managed until I get an ADFS example
-            if($jsonRealmConfig.Credentials.FederationRedirectUrl.StartsWith("https://")){
+            #default to Managed
+            if($jsonRealmConfig.Credentials.FederationRedirectUrl){
                 $mode = "Federated"
                 $nextURL = $jsonRealmConfig.Credentials.FederationRedirectUrl
                 log -text "Received API response for authentication method: Federated"
                 log -text "Authentication target: $nextURL"
             }else{
                 $mode = "New_Managed"
+                log -text "Received API response for authentication method: Managed, new style"
             }
             $flowToken = $jsonRealmConfig.apiCanary
         }else{
@@ -1703,7 +1704,7 @@ function loginV2(){
             }
             try{
                 $body = "i13=0&login=$userUPN&loginfmt=$userUPN&type=11&LoginOptions=3&passwd=$passwordEnc&ps=2&canary=$newCanary&ctx=$cstsRequest&flowToken=$sFT&NewUser=1&fspost=0&i21=0&CookieDisclosure=0&i2=1&i19=41303"
-                log -text "authenticating using new managed mode"
+                log -text "authenticating using new managed mode as $userUPN"
                 $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/login" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri        
             }catch{
                 log -text "error received while posting to login page" -fout
