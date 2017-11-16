@@ -2078,7 +2078,7 @@ function login(){
     log -text "Login attempt using IE method"
     #AzureAD SSO check if a tile exists for this user
     if($userLookupMode -eq 3){
-        if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs)){
+        if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs) -eq $True){
             return $True
         }
     }
@@ -2137,7 +2137,7 @@ function login(){
 
         checkIfCOMObjectIsHealthy
         #If ADFS or Azure automatically signs us on, this will trigger
-        if($redirWaited -gt 1 -and (checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs)){
+        if($redirWaited -gt 1 -and (checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs) -eq $True){
             log -text "Detected an url that indicates we've been signed in automatically: $($script:ie.LocationURL)"
             $useADFS = $True
             break            
@@ -2180,7 +2180,7 @@ function login(){
             return $False
         }
 
-        if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs)){
+        if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs) -eq $True){
             #we've been logged in, we can abort the login function 
             log -text "login detected, login function succeeded, final url: $($script:ie.LocationURL)" 
             return $True             
@@ -2226,7 +2226,7 @@ function login(){
                     log -text "no KMSI prompt even though we expected one" -warning
                 }
             }catch{ 
-                if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs)){
+                if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs) -eq $True){
                     #we've been logged in, we can abort the login function 
                     log -text "login detected, login function succeeded, final url: $($script:ie.LocationURL)" 
                     return $True 
@@ -2240,7 +2240,7 @@ function login(){
             if((checkErrorAtLoginValue -mode "msonline") -eq $False){
                 break   
             }else{
-                if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs)){
+                if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs) -eq $True){
                     #we've been logged in, we can abort the login function 
                     log -text "login detected, login function succeeded, final url: $($script:ie.LocationURL)" 
                     return $True             
@@ -2291,7 +2291,7 @@ function login(){
         }
     }else{ 
         #check if logged in now automatically after ADFS redirect 
-        if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs)){
+        if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs) -eq $True){
             #we've been logged in, we can abort the login function 
             log -text "login detected, login function succeeded, final url: $($script:ie.LocationURL)" 
             return $True 
@@ -2313,7 +2313,7 @@ function login(){
     } 
 
     #check if logged in now 
-    if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs)){
+    if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs) -eq $True){
         #we've been logged in, we can abort the login function 
         log -text "login detected, login function succeeded, final url: $($script:ie.LocationURL)" 
         return $True 
@@ -2341,7 +2341,7 @@ function login(){
                     waitForIE 
                     sleep -s 1 
                     waitForIE  
-                    if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs)){
+                    if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs) -eq $True){
                         #we've been logged in, we can abort the login function 
                         log -text "login detected, login function succeeded, final url: $($script:ie.LocationURL)" 
                         return $True 
@@ -2359,7 +2359,7 @@ function login(){
  
             waitForIE   
             #check if logged in now         
-            if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs)){
+            if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs) -eq $True){
                 #we've been logged in, we can abort the login function 
                 log -text "login detected, login function succeeded, final url: $($ie.LocationURL)" 
                 return $True 
