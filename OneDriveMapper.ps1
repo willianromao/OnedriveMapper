@@ -2134,6 +2134,13 @@ function login(){
         checkIfMFASetupIsRequired
 
         checkIfCOMObjectIsHealthy
+
+        try{
+            (getElementById -id "idSIButton9").click()
+            log -text "KMSI prompt detected" 
+            waitForIE
+        }catch{$Null}
+
         #If ADFS or Azure automatically signs us on, this will trigger
         if($redirWaited -gt 1 -and (checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs) -eq $True){
             log -text "Detected an url that indicates we've been signed in automatically: $($script:ie.LocationURL)"
