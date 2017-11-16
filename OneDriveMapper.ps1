@@ -838,13 +838,15 @@ function checkIfAtO365URL{
     while($true){
         $attempts++
         try{
-            $userTile = getElementById -id $lookupQuery
-            $skipNormalLogin = $True
-            log -text "detected user logged in Tile in IE"
-            $userTile.Click()
-            waitForIE
-            Sleep -m 500
-            waitForIE
+            try{
+                $userTile = getElementById -id $lookupQuery
+                $skipNormalLogin = $True
+                log -text "detected user logged in Tile in IE"
+                $userTile.Click()
+                waitForIE
+                Sleep -m 500
+                waitForIE
+            }catch{$Null}
             $url = $script:ie.LocationURL
             foreach($item in $finalURLs){
                 if($url.StartsWith($item)){
