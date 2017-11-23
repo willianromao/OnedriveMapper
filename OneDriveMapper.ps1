@@ -29,7 +29,7 @@ param(
 ######## 
 #Configuration 
 ######## 
-$version = "3.12"
+$version = "3.13"
 $configurationID       = "00000000-0000-0000-0000-000000000000"#Don't modify this, unless you are using OnedriveMapper Cloud edition
 
 ###If you set a ConfigurationID and are using OnedriveMapper Cloud, no further configuration is required. If you're not using OnedriveMapper Cloud, please finish below configuration.
@@ -207,13 +207,13 @@ if($lookupUserGroups -and $configurationID -eq "00000000-0000-0000-0000-00000000
     try{
         $groups = ([ADSISEARCHER]"samaccountname=$($env:USERNAME)").Findone().Properties.memberof -replace '^CN=([^,]+).+$','$1'
         log -text "cached user group membership because lookupUserGroups was set to True"
-        #####################FOR EACH GROUP YOU WISH TO MAP TO A SHAREPOINT LIBRARY, UNCOMMENT AND REPEAT BELOW EXAMPLE, NOTE: THIS MAY FAIL IF THERE ARE REGEX CHARACTERS IN THE NAME
-        #    $group = $groups -contains "DLG_West District School A - Sharepoint"
-        #    if($group){
-        #       ###REMEMBER, THE BELOW LINE SHOULD CONTAIN 2 COMMA's to distinguish between URL, LABEL and DRIVELETTER
-        #       $sharepointMappings += "https://ogd.sharepoint.com/district_west/DocumentLibraryName,West District,Y:"
-        #       log -text "adding a sharepoint mapping because the user is a member of $group"
-        #    }  
+        #####################FOR EACH GROUP YOU WISH TO MAP TO A SHAREPOINT LIBRARY, UNCOMMENT AND REPEAT BELOW EXAMPLE, NOTE: THIS MAY FAIL IF THERE ARE REGEX CHARACTERS IN THE NAME 
+        #    $group = $groups -contains "DLG_West District School A - Sharepoint" 
+        #    if($group){ 
+        #       ###REMEMBER, THE BELOW LINE SHOULD CONTAIN 2 COMMA's to distinguish between URL, LABEL and DRIVELETTER 
+        #       $sharepointMappings += "https://ogd.sharepoint.com/district_west/DocumentLibraryName,West District,Y:" 
+        #       log -text "adding a sharepoint mapping because the user is a member of $group" 
+        #    }   
     }catch{
         log -text "failed to cache user group membership because of: $($Error[0])" -fout
     }
@@ -1651,42 +1651,61 @@ function loginV2(){
     if(!$adfsSmartLink){
         $jsonRealmConfig = ConvertFrom-Json20 -item $res.Content
         $mode = $Null
-        if($jsonRealmConfig.NameSpaceType -eq $Null){
-            #handle new realm discovery response
-            #default to Managed
-            if($jsonRealmConfig.Credentials.FederationRedirectUrl){
-                $mode = "Federated"
-                $nextURL = $jsonRealmConfig.Credentials.FederationRedirectUrl
-                log -text "Received API response for authentication method: Federated"
-                log -text "Authentication target: $nextURL"
-            }else{
-                $mode = "New_Managed"
-                log -text "Received API response for authentication method: Managed, new style"
+        if($jsonRealmConfig.Credentials.FederationRedirectUrl){
+            $mode = "Federated"
+            $nextURL = $jsonRealmConfig.Credentials.FederationRedirectUrl
+            log -text "Received API response for authentication method: Federated (new style)"
+            log -text "Authentication target: $nextURL"
+        }elseif($jsonRealmConfig.NameSpaceType -eq "Federated"){
+            $mode = "Federated"
+            $nextURL = $jsonRealmConfig.AuthURL
+            log -text "Received API response for authentication method: Federated"
+            log -text "Authentication target: $nextURL"
+        }elseif($jsonRealmConfig.NameSpaceType -eq "Managed"){
+            $mode = "Managed"
+            log -text "Received API response for authentication method: Managed"
+            if($jsonRealmConfig.is_dsso_enabled){
+                $apiCanary = $jsonRealmConfig.apiCanary
+                $azureADSSOEnabled = $True
+                log -text "Additionally, Azure AD SSO and/or PassThrough is enabled for your tenant"
             }
-            $flowToken = $jsonRealmConfig.apiCanary
+            $nextURL = "https://login.microsoftonline.com/common/login"            
         }else{
-            #handle old realm discovery response
-            if($jsonRealmConfig.NameSpaceType -eq "Managed"){
-                $mode = "Managed"
-                log -text "Received API response for authentication method: Managed"
-                if($jsonRealmConfig.is_dsso_enabled){
-                    $azureADSSOEnabled = $True
-                    log -text "Additionally, Azure AD SSO and/or PassThrough is enabled for your tenant"
-                }
-                $nextURL = "https://login.microsoftonline.com/common/login"
+            $mode = "New_Managed"
+            log -text "Received API response for authentication method: Managed, new style"
+            if($jsonRealmConfig.EstsProperties.DesktopSsoEnabled){
+                $azureADSSOEnabled = $True
+                log -text "Additionally, Azure AD SSO and/or PassThrough is enabled for your tenant"                
             }
-            if($jsonRealmConfig.NameSpaceType -eq "Federated"){
-                $mode = "Federated"
-                $nextURL = $jsonRealmConfig.AuthURL
-                log -text "Received API response for authentication method: Federated"
-                log -text "Authentication target: $nextURL"
-            }
-            $uidEnc = [System.Web.HttpUtility]::HtmlEncode($jsonRealmConfig.Login)
         }
     }
 
     #authenticate using New Managed Mode
     if($mode -eq "New_Managed"){
+       #if azure AD SSO is enable, we need to trigger a session with the backend
+        if($azureADSSOEnabled){
+            $nextURL2 = "https://autologon.microsoftazuread-sso.com/$($userUPN.Split("@")[1])/winauth/sso?desktopsso=true&isAdalRequest=False&client-request-id=$clientId"
+            log -text "Authentication target: $nextURL2"
+            try{
+                $res = JosL-WebRequest -url $nextURL2 -trySSO 1 -method GET -accept "text/html, application/xhtml+xml, image/jxr, */*" -referer "https://login.microsoftonline.com/" 
+                log -text "Azure AD SSO response received: $($res.Content)"
+                $ssoToken = $res.Content
+            }catch{
+                log -text "no SSO token received from AzureAD, did you add autologon.microsoftazuread-sso.com to the local intranet sites?" -warning
+            }
+            $nextURL2 = "https://login.microsoftonline.com/common/instrumentation/dssostatus"
+            $customHeaders = @{"canary" = $apiCanary;"hpgid" = "1104";"hpgact" = "1800";"client-request-id"=$clientId}
+            $JSON = @{"resultCode"="0";"ssoDelay"="200";"log"=$Null}
+            $JSON = ConvertTo-Json20 -item $JSON
+            $res = JosL-WebRequest -url $nextURL2 -method POST -body $JSON -customHeaders $customHeaders
+            $JSON = ConvertFrom-Json20 -item $res.Content
+            if($JSON.apiCanary){
+                log -text "AADC SSO step 1 completed"
+            }else{
+                log -text "Failed to retrieve AADC SSO status token" -fout
+            }
+
+        }
         $attempts = 0
         while($true){
             if($attempts -gt 2){
@@ -1699,11 +1718,18 @@ function loginV2(){
                 $password = retrievePassword -forceNewPassword
                 $passwordEnc = [System.Web.HttpUtility]::UrlEncode($password)
             }else{
-                $password = retrievePassword
-                $passwordEnc = [System.Web.HttpUtility]::UrlEncode($password)
+                if(!$azureADSSOEnabled -or ($azureADSSOEnabled -and $ssoToken.Length -lt 10)){
+                    log -text "Managed authentication requires a password, retrieving it now..."
+                    $password = retrievePassword
+                    $passwordEnc = [System.Web.HttpUtility]::UrlEncode($password)
+                }
             }
             try{
-                $body = "i13=0&login=$userUPN&loginfmt=$userUPN&type=11&LoginOptions=3&passwd=$passwordEnc&ps=2&canary=$newCanary&ctx=$cstsRequest&flowToken=$sFT&NewUser=1&fspost=0&i21=0&CookieDisclosure=0&i2=1&i19=41303"
+                if($azureADSSOEnabled -and $ssoToken.Length -gt 10){
+                    $body = "login=$userUPN&passwd=&ctx=$cstsRequest&flowToken=$sFT&canary=$newCanary&dssoToken=$ssoToken"
+                }else{
+                    $body = "i13=0&login=$userUPN&loginfmt=$userUPN&type=11&LoginOptions=3&passwd=$passwordEnc&ps=2&canary=$newCanary&ctx=$cstsRequest&flowToken=$sFT&NewUser=1&fspost=0&i21=0&CookieDisclosure=0&i2=1&i19=41303"
+                }
                 log -text "authenticating using new managed mode as $userUPN"
                 $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/login" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri        
             }catch{
