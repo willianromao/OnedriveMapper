@@ -1578,16 +1578,6 @@ function checkErrorAtLoginValue{
     }
 }
 
-function checkIfMFAControlsArePresent{
-    Param(
-        [Switch]$withoutADFS
-    )
-    try{
-        $found_TfaWaiting = (getElementById -id "checkIfMFAControlsArePresent").tagName
-    }catch{$found_TfaWaiting = $Null}
-    if($found_TfaWaiting){return $True}else{return $False}
-}
-
 function loginV2(){
     Param(
         $tryAgainRes
@@ -2231,11 +2221,7 @@ function login(){
                 log -text "Failed to force sign in persistence" -warning
             }
             try{
-                try{
-                    $tfa_setup_now = getElementById -id "tfa_setupnow_button"
-                    log -text "We detected that your administrator has enabled MFA on your account, but you have not yet set up MFA." -fout
-                    return $False
-                }catch{$Null}
+                checkIfMFASetupIsRequired
                 if($pwdAttempts -gt 1){
                     if($userLookupMode -eq 4){
                         $userName = (retrieveLogin -forceNewUsername)
