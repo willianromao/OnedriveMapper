@@ -1583,7 +1583,7 @@ function checkIfMFAControlsArePresent{
         [Switch]$withoutADFS
     )
     try{
-        $found_TfaWaiting = (getElementById -id "tfa_results_container").tagName
+        $found_TfaWaiting = (getElementById -id "checkIfMFAControlsArePresent").tagName
     }catch{$found_TfaWaiting = $Null}
     if($found_TfaWaiting){return $True}else{return $False}
 }
@@ -2231,6 +2231,11 @@ function login(){
                 log -text "Failed to force sign in persistence" -warning
             }
             try{
+                try{
+                    $tfa_setup_now = getElementById -id "tfa_setupnow_button"
+                    log -text "We detected that your administrator has enabled MFA on your account, but you have not yet set up MFA." -fout
+                    return $False
+                }catch{$Null}
                 if($pwdAttempts -gt 1){
                     if($userLookupMode -eq 4){
                         $userName = (retrieveLogin -forceNewUsername)
@@ -2250,6 +2255,26 @@ function login(){
                 (getElementById -id "idSIButton9").click() 
                 waitForIE
                 sleep -s 1
+                #MFA PhoneCall handler
+                try{
+                    $tfa_call_status = getElementById -id "idDiv_SAOTCC_Description"
+                    log -text "detected you're being called by MFA, waiting 10 seconds so you can reply..."
+                    sleep -s 10
+                }catch{$Null}
+                #MFA Text handler
+                try{
+                    $tfa_form = getElementById -id "idTxtBx_SAOTCC_OTC"
+                    log -text "detected an MFA prompt, asking for SMS code"
+                    $code = askForCode
+                    (getElementById -id "idTxtBx_SAOTCC_OTC").value = $code 
+                    (getElementById -id "idTxtBx_SAOTCC_OTC").innerText = $code 
+                    waitForIE
+                    sleep -s 1
+                    (getElementById -id "idSubmit_SAOTCC_Continue").click() 
+                    log -text "clicked MFA button"
+                    waitForIE
+                    sleep -s 1
+                }catch{$Null}
                 try{
                     (getElementById -id "idSIButton9").click() 
                     waitForIE
@@ -2279,46 +2304,6 @@ function login(){
                 log -text "There was an issue while trying to log in during attempt $pwdAttempts" -fout
             }
             $script:errorsForUser = $Null
-        }
-
-        #Office 365 two factor is required (SMS NOT YET SUPPORTED)
-        if((checkIfMFAControlsArePresent -withoutADFS)){ 
-            $waited = 0
-            $maxWait = 90
-            $loop = $True
-            $MfaCodeAsked = $False
-            while($loop){
-                Sleep -s 2
-                $waited+=2
-                #check if on the MFA page, otherwise we're past the page already
-                if((checkIfMFAControlsArePresent -withoutADFS)){ 
-                    log -text "Waited for $waited seconds for user to complete Multi-Factor Authentication $found_TfaWaiting"
-                }else{
-                    log -text "Multi-Factor Authentication completed in $waited seconds"
-                    $loop = $False
-                }
-                #check for SMS/App input field container
-                try{
-                    $found_MfaCode = getElementById -id "tfa_code_container"
-                }catch{
-                    $found_MfaCode = $Null
-                }
-                #if field is visible and we haven't asked before, ask for the text/app message code, otherwise user is probably using the phonecall method
-                if($found_MfaCode -ne $Null -and $found_MfaCode.ariaHidden -ne $True -and $MfaCodeAsked -eq $False){
-                    $MfaCodeAsked = $True
-                    $code = askForCode
-                    (getElementById -id "tfa_code_inputtext").value = $code
-                    waitForIE
-                    (getElementById -id "tfa_signin_button").click() 
-                    waitForIE
-                }
-                if($waited -ge $maxWait){
-                    log -text "Failed to log in at $($script:ie.LocationURL) because multi-factor authentication was not completed in time." -fout
-                    $script:errorsForUser += "Cannot continue: you have not completed multi-factor authentication in the maximum alotted time"
-                    return $False 
-                }
-            }
-
         }
     }else{ 
         #check if logged in now automatically after ADFS redirect 
