@@ -1225,7 +1225,7 @@ function askForUserName{
         } 
     } 
     until($login.Length -gt 0 -or $askAttempts -gt 2) 
-    if($askAttempts -gt 3) { 
+    if($askAttempts -gt 2) { 
         log -text "user refused to enter a login name, exiting" -fout
         $script:errorsForUser += "You did not enter a login name, script cannot continue`n"
         abort_OM 
