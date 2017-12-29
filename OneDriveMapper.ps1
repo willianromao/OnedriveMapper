@@ -1404,7 +1404,7 @@ function askForCode{
         } 
     } 
     until($login.Length -gt 0 -or $askAttempts -gt 2) 
-    if($askAttempts -gt 3) { 
+    if($askAttempts -gt 2) { 
         log -text "user refused to enter an SMS code, exiting" -fout
         $script:errorsForUser += "You did not enter an SMS code, script cannot continue`n"
         abort_OM 
