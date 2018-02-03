@@ -832,7 +832,7 @@ function checkIfAtO365URL{
     }
     $lookupQuery = $userUPN -replace "@","_"
     $lookupQuery = $lookupQuery -replace "\.","_"
-    $attemps = 0
+    $attempts = 0
     while($true){
         $attempts++
         try{
