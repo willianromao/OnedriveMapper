@@ -393,6 +393,7 @@ function returnEnclosedFormValue{
 		$endString = "`"",
         [Switch]$decode
     )
+    returnEnclosedFormValue -res $res -$searchString = "<form method=`"POST`" name=`"hiddenform`" action=`""
     try{
         if($res.Content.Length -le 0){Throw "no request given"}
         if($searchString){$start = $searchString}else{Throw "empty search string"}
@@ -400,8 +401,8 @@ function returnEnclosedFormValue{
         if($startLoc -eq $start.Length-1){
             return -1
         }
-        $searchLength = $res.Content.IndexOf($endString,$startLoc)-$startLoc
-        if($searchLength -eq $startLoc-1){
+        $searchLength = $res.Content.IndexOf("bestaatniet",$startLoc)-$startLoc
+        if($searchLength -le 0){
             return -1
         }
         if($decode){
