@@ -62,7 +62,7 @@ $adfsWaitTime          = 10                        #Amount of seconds to allow f
 $libraryName           = "Documents"               #leave this default, unless you wish to map a non-default library you've created 
 $autoKillIE            = $True                     #Kill any running Internet Explorer processes prior to running the script to prevent security errors when mapping 
 $abortIfNoAdfs         = $False                    #If set to True, will stop the script if no ADFS server has been detected during login
-$adfsMode              = 1                         #1 = use whatever came out of userLookupMode, 2 = use only the part before the @ in the upn, 3 = use user certificate (local user store)
+$adfsMode              = 1                         #1 = use whatever came out of userLookupMode, 2 = use only the part before the @ in the upn, 3 = use user certificate (local user store) and match Subject to Username
 $adfsSmartLink         = $Null                     #If set, the ADFS smartlink will be used to log in to Office 365. For more info, read the FAQ at http://http://www.lieben.nu/liebensraum/onedrivemapper/onedrivemapper-faq/
 $displayErrors         = $True                     #show errors to user in visual popups
 $persistentMapping     = $True                     #If set to $False, the mapping will go away when the user logs off
@@ -101,16 +101,19 @@ if($showConsoleOutput -eq $False){
 }
 
 ######## 
-#Required resources, it's highly unlikely you need to change any of this
+#Required resources and some customizations you'll probably not use
 ######## 
 $arguments = "& '" + $myinvocation.mycommand.definition + "'"
 $mapresult = $False 
+
 $protectedModeValues = @{} 
 $privateSuffix = "-my"
 $script:errorsForUser = ""
 $userLoginRegistryKey = "HKCU:\System\CurrentControlSet\Control\CustomUID"
 $onedriveIconPath = "C:\GitRepos\OnedriveMapper\onedrive.ico" #if this file exists, and you've set addShellLink to True, it will be used as icon for the shortcut
 $i_MaxLocalLogSize = 2 #max local log size in MB
+$certificateMatchMethod = 1 #used with adfsMode = 3, when set to 1 it'll match based on the local username, if set to 2 it'll use the following variable to match to a template name
+$certificateTemplateName  = "Office365_Client_Authentication"
 $maxWaitSecondsForSpO  = 5                        #Maximum seconds the script waits for Sharepoint Online to load before mapping
 if($adfsSmartLink){
     $o365loginURL = $adfsSmartLink
@@ -330,7 +333,13 @@ function JosL-WebRequest{
             $request.KeepAlive = $True
             if($adfsMode -eq 3){
                 #Find the FIRST certificate that matches the user's username and append it to all requests
-                $userCert = (Get-ChildItem -Path Cert:\CurrentUser\My | Where-Object {$_.Subject -like "*$($Env:USERNAME)*"})[0]
+                if($certificateMatchMethod -eq 1){
+                    $userCert = (Get-ChildItem -Path Cert:\CurrentUser\My | Where-Object {$_.Subject -like "*$($Env:USERNAME)*"})[0]
+                }
+                #Find the FIRST certificate that matches the template name specified in the script configuration
+                if($certificateMatchMethod -eq 2){
+                    $userCert = (Get-ChildItem -Path Cert:\CurrentUser\My | Where-Object {($_.extensions.Format(1)[0].split('(')[0]).Split('=')[-1] -like "*$($certificateTemplateName)*"})[0]
+                }                
                 $request.ClientCertificates.AddRange($userCert)
             }
             $request.TimeOut = 10000
