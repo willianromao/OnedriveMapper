@@ -27,7 +27,7 @@ param(
 )
 
 
-$version = "3.13"
+$version = "3.14"
 $configurationID       = "00000000-0000-0000-0000-000000000000"#Don't modify this, unless you are using OnedriveMapper Cloud edition
 
 ###If you set a ConfigurationID and are using OnedriveMapper Cloud, no further configuration is required. If you're not using OnedriveMapper Cloud, please finish below configuration.
@@ -324,7 +324,6 @@ public extern static int SHSetKnownFolderPath(ref Guid folderId, uint flags, Int
 
     If (Test-Path $Path -PathType Container) {
         ForEach ($guid in $KnownFolders[$KnownFolder]) {
-            Write-Verbose "Redirecting $KnownFolders[$KnownFolder]"
             $result = $Type::SHSetKnownFolderPath([ref]$guid, 0, 0, $Path)
             If ($result -ne 0) {
                 $errormsg = "Error redirecting $($KnownFolder). Return code $($result) = $((New-Object System.ComponentModel.Win32Exception($result)).message)"
@@ -354,7 +353,6 @@ Function Get-KnownFolderPath {
 
 Function Redirect-Folder {
     Param (
-        $SyncFolder,
         $GetFolder,
         $SetFolder,
         $Target,
@@ -362,15 +360,12 @@ Function Redirect-Folder {
     )
 
     $Folder = Get-KnownFolderPath -KnownFolder $GetFolder
-    If ($Folder -ne (Join-Path $SyncFolder -ChildPath $Target)) {
-        Write-Verbose "Redirecting $SetFolder to $(Join-Path $SyncFolder -ChildPath $Target)"
-        Set-KnownFolderPath -KnownFolder $SetFolder -Path (Join-Path $SyncFolder -ChildPath $Target)
+    If ($Folder -ne $Target) {
+        Set-KnownFolderPath -KnownFolder $SetFolder -Path $Target
         if($copyExistingFiles){
-            Get-ChildItem -Path $Folder -ErrorAction Continue | Copy-Item -Destination (Join-Path $SyncFolder -ChildPath $Target) -Recurse -Container -Force -Confirm:$False -ErrorAction Continue
+            Get-ChildItem -Path $Folder -ErrorAction Continue | Copy-Item -Destination $Target -Recurse -Container -Force -Confirm:$False -ErrorAction Continue
         }
         Attrib +h $Folder
-    } Else {
-        Write-Verbose "Folder $GetFolder matches target. Skipping redirection."
     }
 }
 
@@ -3610,6 +3605,24 @@ foreach($spMapping in $sharepointMappings){
     }
     log -text "SpO cookie generated, attempting to map drive"
     $mapresult = MapDrive $desiredMapping[0].driveLetter $desiredMapping[0].url $desiredMapping[0].label
+}
+
+#update progress bar
+if($showProgressBar) {
+    $script:progressbar1.Value = 90
+    $script:form1.Refresh()
+}
+
+if($redirectFolders){
+    $listOfFoldersToRedirect | % {
+        log -text "Redirecting $($_.knownFolderInternalName) to $($_.desiredTargetPath)"
+        try{
+            Redirect-Folder -GetFolder $_.knownFolderInternalName -SetFolder $_.knownFolderInternalIdentifier -Target $_.desiredTargetPath -copyExistingFiles $_.copyExistingFiles
+            log -text "Redirected $($_.knownFolderInternalName) to $($_.desiredTargetPath)"
+        }catch{
+            log -text "Failed to redirect $($_.knownFolderInternalName) to $($_.desiredTargetPath): $($Error[0])" -fout
+        }
+    }
 }
 
 #update progress bar
