@@ -57,6 +57,7 @@ $listOfFoldersToRedirect = @(#One line for each folder you want to redirect, onl
 )
 
 ###OPTIONAL CONFIGURATION
+$clearCookies          = $False                    #always clear all Internet Explorer cookies before running (prevents certain occasional issues with IE)
 $libraryName           = "Documents"               #leave this default, unless you wish to map a non-default library you've created 
 $autoKillIE            = $True                     #Kill any running Internet Explorer processes prior to running the script to prevent security errors when mapping 
 $abortIfNoAdfs         = $False                    #If set to True, will stop the script if no ADFS server has been detected during login
@@ -226,21 +227,13 @@ if($lookupUserGroups -and $configurationID -eq "00000000-0000-0000-0000-00000000
 
 function Add-NetworkLocation
 <#
-    Author: 
-        
-        Tom White, 2015.
-    
+    Author: Tom White, 2015.
     Description:
-
         Creates a network location shortcut using the specified path, name and target.
         Replicates the behaviour of the 'Add Network Location' wizard, creating a special folder as opposed to a simple shortcut.
-
         Returns $true on success and $false on failure.
-
         Use -Verbose for extended output.
-
     Example:
-
         Add-NetworkLocation -networkLocationPath "$env:APPDATA\Microsoft\Windows\Network Shortcuts" -networkLocationName "Network Location" -networkLocationTarget "\\server\share" -Verbose
 #>
 {
@@ -3310,6 +3303,10 @@ if($showProgressBar) {
 handleAzureADConnectSSO -initial
 
 log -text "Base URL: $($baseURL) `n" 
+
+if($clearCookies){
+    RunDll32.exe InetCpl.cpl, ClearMyTracksByProcess 2
+}
 
 #Start IE and stop it once to make sure IE sets default registry keys 
 if($authMethod -ne "native" -and $autoKillIE){ 
