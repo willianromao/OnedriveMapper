@@ -338,7 +338,24 @@ function JosL-WebRequest{
                 }
                 #Find the FIRST certificate that matches the template name specified in the script configuration
                 if($certificateMatchMethod -eq 2){
-                    $userCert = (Get-ChildItem -Path Cert:\CurrentUser\My | Where-Object {($_.extensions.Format(1)[0].split('(')[0]).Split('=')[-1] -like "*$($certificateTemplateName)*"})[0]
+                    $attempts = 0
+                    while($true){
+                        try{
+                            $userCert = (Get-ChildItem -Path Cert:\CurrentUser\My | Where-Object {($_.extensions.Format(1)[0].split('(')[0]).Split('=')[-1] -like "*$($certificateTemplateName)*"})[0]       
+                            if(!$userCert){Throw}
+                            break
+                        }catch{
+                            $attempts++
+                            if($attemps -le 3){
+                                certutil -user -pulse
+                                Sleep -s 10
+                            }else{
+                                Write-Error "Failed to retrieve a valid certificate" -ErrorAction Continue
+                                break
+                            }
+                        }
+                    }
+                    
                 }                
                 $request.ClientCertificates.AddRange($userCert)
             }
