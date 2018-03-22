@@ -26,43 +26,40 @@ param(
     [Switch]$hideConsole
 )
 
-######## 
-#Configuration 
-######## 
+
 $version = "3.13"
 $configurationID       = "00000000-0000-0000-0000-000000000000"#Don't modify this, unless you are using OnedriveMapper Cloud edition
 
 ###If you set a ConfigurationID and are using OnedriveMapper Cloud, no further configuration is required. If you're not using OnedriveMapper Cloud, please finish below configuration.
 
+####MANDATORY MANUAL CONFIGURATION (when not using OnedriveMapper Cloud)
 $authMethod            = "native"                  #Uses IE automation (old method) when set to ie, uses new native method when set to 'native'
-$allowFallbackMode     = $True                     #if set to True, and the selected authentication method fails, onedrivemapper will try again using the other authentication method
 $driveLetter           = "X:"                      #This is the driveletter you'd like to use for OneDrive, for example: Z: 
-$redirectMyDocs        = $False                    #will redirect mydocuments to the mounted drive if set to $True, does not properly 'undo' when disabled after being enabled
-$redirectDesktop       = $False
-$redirectFavorites     = $False
-$redirectToSubfolderName  = "Documents"               #This is the folder to which we will redirect under the given $driveletter, leave empty to redirect to the Root (may cause odd labels for special folders in Windows)
 $driveLabel            = "Onedrive WebDAV"                #If you enter a name here, the script will attempt to label the drive with this value 
 $O365CustomerName      = "onedrivemapper"          #This should be the name of your tenant (example, ogd as in ogd.onmicrosoft.com) 
-$logfile               = ($env:APPDATA + "\OneDriveMapper_$version.log")    #Logfile to log to 
-$pwdCache              = ($env:APPDATA + "\OneDriveMapper.tmp")    #file to store encrypted password into, change to $Null to disable
-$loginCache            = ($env:APPDATA + "\OneDriveMapper.tmp2")    #file to store encrypted login into, change to $Null to disable
-$settingsCache         = ($env:APPDATA + "\OneDriveMapper.cache")    #file to store encrypted settings in case server isn't reachable, change to $Null to disable
-$dontMapO4B            = $False                    #If you're only using Sharepoint Online mappings (see below), set this to True to keep the script from mapping the user's O4B
-$addShellLink          = $False                    #Adds a link to Onedrive to the Shell under Favorites (Windows 7, 8 / 2008R2 and 2012R2 only) If you use a remote path, google EnableShellShortcutIconRemotePath
 $deleteUnmanagedDrives = $True                     #If set to $True, OnedriveMapper checks if there are 'other' mapped drives to Sharepoint Online/Onedrive that OnedriveMapper does not manage, and disconnects them. This is useful if you change a driveletter.
 $debugmode             = $False                    #Set to $True for debugging purposes. You'll be able to see the script navigate in Internet Explorer if you're using IE auth mode
 $userLookupMode        = 1                         #1 = Active Directory UPN, 2 = Active Directory Email, 3 = Azure AD Joined Windows 10, 4 = query user for his/her login, 5 = lookup by registry key, 6 = display full form (ask for both username and login if no cached versions can be found), 7 = whoami /upn
 $AzureAADConnectSSO    = $False                    #NOT NEEDED FOR NATIVE AUTH, if set to True, will automatically remove AzureADSSO registry key before mapping, and then readd them after mapping. Otherwise, mapping fails because AzureADSSO creates a non-persistent cookie
 $lookupUserGroups      = $False                    #Set this to $True if you want to map user security groups to Sharepoint Sites (read below for additional required configuration)
-$forceUserName         = ''                        #if anything is entered here, userLookupMode is ignored
-$forcePassword         = ''                        #if anything is entered here, the user won't be prompted for a password. This function is not recommended, as your password could be stolen from this file 
-$restartExplorer       = $False                    #Set to $True if you're having any issues with drive visibility
-$autoProtectedMode     = $True                     #Automatically temporarily disable IE Protected Mode if it is enabled. ProtectedMode has to be disabled for the script to function 
 $adfsWaitTime          = 10                        #Amount of seconds to allow for SSO (ADFS or AzureAD or any other configured SSO provider) redirects, if set too low, the script may fail while just waiting for a slow redirect, this is because the IE object will report being ready even though it is not.  Set to 0 if using passwords to sign in.
+$adfsMode              = 1                         #1 = use whatever came out of userLookupMode, 2 = use only the part before the @ in the upn, 3 = use user certificate (local user store) and match Subject to Username
+$showConsoleOutput     = $True                     #Set this to $False to hide console output
+$showElevatedConsole   = $True
+$sharepointMappings    = @()
+$sharepointMappings    += "https://ogd.sharepoint.com/site1/documentsLibrary,ExampleLabel,Y:" #for each sharepoint site you wish to map 3 comma seperated values are required, the 'clean' url to the library (see example), the desired drive label, and the driveletter
+#if you wish to add more, copy the example as you see above, if you don't wish to map any sharepoint sites, simply leave as is
+$redirectFolders       = $false
+$listOfFoldersToRedirect = @(#One line for each folder you want to redirect, only works if redirectFolders=$True. For knownFolderInternalName choose from Get-KnownFolderPath function, for knownFolderInternalIdentifier choose from Set-KnownFolderPath function
+    @{"knownFolderInternalName" = "Desktop";"knownFolderInternalIdentifier"="Desktop";"desiredTargetPath"="X:\Desktop";"copyExistingFiles"="true"},
+    @{"knownFolderInternalName" = "MyDocuments";"knownFolderInternalIdentifier"="Documents";"desiredTargetPath"="X:\My Documents";"copyExistingFiles"="true"},
+    @{"knownFolderInternalName" = "MyPictures";"knownFolderInternalIdentifier"="Pictures";"desiredTargetPath"="X:\My Pictures";"copyExistingFiles"="false"} #note that the last entry does NOT end with a comma
+)
+
+###OPTIONAL CONFIGURATION
 $libraryName           = "Documents"               #leave this default, unless you wish to map a non-default library you've created 
 $autoKillIE            = $True                     #Kill any running Internet Explorer processes prior to running the script to prevent security errors when mapping 
 $abortIfNoAdfs         = $False                    #If set to True, will stop the script if no ADFS server has been detected during login
-$adfsMode              = 1                         #1 = use whatever came out of userLookupMode, 2 = use only the part before the @ in the upn, 3 = use user certificate (local user store) and match Subject to Username
 $adfsSmartLink         = $Null                     #If set, the ADFS smartlink will be used to log in to Office 365. For more info, read the FAQ at http://http://www.lieben.nu/liebensraum/onedrivemapper/onedrivemapper-faq/
 $displayErrors         = $True                     #show errors to user in visual popups
 $persistentMapping     = $True                     #If set to $False, the mapping will go away when the user logs off
@@ -75,17 +72,22 @@ $adfsLoginInput        = "userNameInput"           #change to user-signin if usi
 $adfsPwdInput          = "passwordInput"           #change to pass-signin if using Okta, passwordTxt if using RMUnify, user_password if using onelogin
 $adfsButton            = "submitButton"            #change to singin-button if using Okta, Submit if using RMUnify, user_submit if using onelogin
 $urlOpenAfter          = ""                        #This URL will be opened by the script after running if you configure it
-$showConsoleOutput     = $True                     #Set this to $False to hide console output
-$showElevatedConsole   = $True
-$sharepointMappings    = @()
-$sharepointMappings    += "https://ogd.sharepoint.com/site1/documentsLibrary,ExampleLabel,Y:"
 $showProgressBar       = $True                     #will show a progress bar to the user
 $progressBarColor      = "#CC99FF"
 $progressBarText       = "OnedriveMapper v$version is connecting your drives..."
 $versionCheck          = $False                     #will check if running the latest version, if not, this will be logged to the logfile, no personal data is transmitted.
 $autoDetectProxy       = $False                    #if set to $False, unchecks the 'Automatically detect proxy settings' setting in IE; this greatly enhanced WebDav performance, set to true to not modify this IE setting (leave as is)
-#for each sharepoint site you wish to map 3 comma seperated values are required, the 'clean' url to the library (see example), the desired drive label, and the driveletter
-#if you wish to add more, copy the example as you see above, if you don't wish to map any sharepoint sites, simply leave as is
+$forceUserName         = ''                        #if anything is entered here, userLookupMode is ignored
+$forcePassword         = ''                        #if anything is entered here, the user won't be prompted for a password. This function is not recommended, as your password could be stolen from this file 
+$restartExplorer       = $False                    #Set to $True if you're having any issues with drive visibility
+$autoProtectedMode     = $True                     #Automatically temporarily disable IE Protected Mode if it is enabled. ProtectedMode has to be disabled for the script to function 
+$addShellLink          = $False                    #Adds a link to Onedrive to the Shell under Favorites (Windows 7, 8 / 2008R2 and 2012R2 only) If you use a remote path, google EnableShellShortcutIconRemotePath
+$logfile               = ($env:APPDATA + "\OneDriveMapper_$version.log")    #Logfile to log to 
+$pwdCache              = ($env:APPDATA + "\OneDriveMapper.tmp")    #file to store encrypted password into, change to $Null to disable
+$loginCache            = ($env:APPDATA + "\OneDriveMapper.tmp2")    #file to store encrypted login into, change to $Null to disable
+$settingsCache         = ($env:APPDATA + "\OneDriveMapper.cache")    #file to store encrypted settings in case server isn't reachable, change to $Null to disable
+$dontMapO4B            = $False                    #If you're only using Sharepoint Online mappings (see below), set this to True to keep the script from mapping the user's O4B
+$allowFallbackMode     = $True                     #if set to True, and the selected authentication method fails, onedrivemapper will try again using the other authentication method
 
 if($hideConsole){
     $showConsoleOutput     = $False
@@ -258,6 +260,120 @@ function createFavoritesShortcutToO4B{
     }
 }
 
+Function Set-KnownFolderPath {
+    Param (
+            [Parameter(Mandatory = $true)][ValidateSet('AddNewPrograms', 'AdminTools', 'AppUpdates', 'CDBurning', 'ChangeRemovePrograms', 'CommonAdminTools', 'CommonOEMLinks', 'CommonPrograms', `
+            'CommonStartMenu', 'CommonStartup', 'CommonTemplates', 'ComputerFolder', 'ConflictFolder', 'ConnectionsFolder', 'Contacts', 'ControlPanelFolder', 'Cookies', `
+            'Desktop', 'Documents', 'Downloads', 'Favorites', 'Fonts', 'Games', 'GameTasks', 'History', 'InternetCache', 'InternetFolder', 'Links', 'LocalAppData', `
+            'LocalAppDataLow', 'LocalizedResourcesDir', 'Music', 'NetHood', 'NetworkFolder', 'OriginalImages', 'PhotoAlbums', 'Pictures', 'Playlists', 'PrintersFolder', `
+            'PrintHood', 'Profile', 'ProgramData', 'ProgramFiles', 'ProgramFilesX64', 'ProgramFilesX86', 'ProgramFilesCommon', 'ProgramFilesCommonX64', 'ProgramFilesCommonX86', `
+            'Programs', 'Public', 'PublicDesktop', 'PublicDocuments', 'PublicDownloads', 'PublicGameTasks', 'PublicMusic', 'PublicPictures', 'PublicVideos', 'QuickLaunch', `
+            'Recent', 'RecycleBinFolder', 'ResourceDir', 'RoamingAppData', 'SampleMusic', 'SamplePictures', 'SamplePlaylists', 'SampleVideos', 'SavedGames', 'SavedSearches', `
+            'SEARCH_CSC', 'SEARCH_MAPI', 'SearchHome', 'SendTo', 'SidebarDefaultParts', 'SidebarParts', 'StartMenu', 'Startup', 'SyncManagerFolder', 'SyncResultsFolder', `
+            'SyncSetupFolder', 'System', 'SystemX86', 'Templates', 'TreeProperties', 'UserProfiles', 'UsersFiles', 'Videos', 'Windows')]
+            [string]$KnownFolder,
+            [Parameter(Mandatory = $true)][string]$Path
+    )
+
+    # Define known folder GUIDs
+    $KnownFolders = @{
+        'AddNewPrograms' = 'de61d971-5ebc-4f02-a3a9-6c82895e5c04';'AdminTools' = '724EF170-A42D-4FEF-9F26-B60E846FBA4F';'AppUpdates' = 'a305ce99-f527-492b-8b1a-7e76fa98d6e4';
+        'CDBurning' = '9E52AB10-F80D-49DF-ACB8-4330F5687855';'ChangeRemovePrograms' = 'df7266ac-9274-4867-8d55-3bd661de872d';'CommonAdminTools' = 'D0384E7D-BAC3-4797-8F14-CBA229B392B5';
+        'CommonOEMLinks' = 'C1BAE2D0-10DF-4334-BEDD-7AA20B227A9D';'CommonPrograms' = '0139D44E-6AFE-49F2-8690-3DAFCAE6FFB8';'CommonStartMenu' = 'A4115719-D62E-491D-AA7C-E74B8BE3B067';
+        'CommonStartup' = '82A5EA35-D9CD-47C5-9629-E15D2F714E6E';'CommonTemplates' = 'B94237E7-57AC-4347-9151-B08C6C32D1F7';'ComputerFolder' = '0AC0837C-BBF8-452A-850D-79D08E667CA7';
+        'ConflictFolder' = '4bfefb45-347d-4006-a5be-ac0cb0567192';'ConnectionsFolder' = '6F0CD92B-2E97-45D1-88FF-B0D186B8DEDD';'Contacts' = '56784854-C6CB-462b-8169-88E350ACB882';
+        'ControlPanelFolder' = '82A74AEB-AEB4-465C-A014-D097EE346D63';'Cookies' = '2B0F765D-C0E9-4171-908E-08A611B84FF6';'Desktop' = @('B4BFCC3A-DB2C-424C-B029-7FE99A87C641');
+        'Documents' = @('FDD39AD0-238F-46AF-ADB4-6C85480369C7','f42ee2d3-909f-4907-8871-4c22fc0bf756');'Downloads' = @('374DE290-123F-4565-9164-39C4925E467B','7d83ee9b-2244-4e70-b1f5-5393042af1e4');
+        'Favorites' = '1777F761-68AD-4D8A-87BD-30B759FA33DD';'Fonts' = 'FD228CB7-AE11-4AE3-864C-16F3910AB8FE';'Games' = 'CAC52C1A-B53D-4edc-92D7-6B2E8AC19434';
+        'GameTasks' = '054FAE61-4DD8-4787-80B6-090220C4B700';'History' = 'D9DC8A3B-B784-432E-A781-5A1130A75963';'InternetCache' = '352481E8-33BE-4251-BA85-6007CAEDCF9D';
+        'InternetFolder' = '4D9F7874-4E0C-4904-967B-40B0D20C3E4B';'Links' = 'bfb9d5e0-c6a9-404c-b2b2-ae6db6af4968';'LocalAppData' = 'F1B32785-6FBA-4FCF-9D55-7B8E7F157091';
+        'LocalAppDataLow' = 'A520A1A4-1780-4FF6-BD18-167343C5AF16';'LocalizedResourcesDir' = '2A00375E-224C-49DE-B8D1-440DF7EF3DDC';'Music' = @('4BD8D571-6D19-48D3-BE97-422220080E43','a0c69a99-21c8-4671-8703-7934162fcf1d');
+        'NetHood' = 'C5ABBF53-E17F-4121-8900-86626FC2C973';'NetworkFolder' = 'D20BEEC4-5CA8-4905-AE3B-BF251EA09B53';'OriginalImages' = '2C36C0AA-5812-4b87-BFD0-4CD0DFB19B39';
+        'PhotoAlbums' = '69D2CF90-FC33-4FB7-9A0C-EBB0F0FCB43C';'Pictures' = @('33E28130-4E1E-4676-835A-98395C3BC3BB','0ddd015d-b06c-45d5-8c4c-f59713854639');
+        'Playlists' = 'DE92C1C7-837F-4F69-A3BB-86E631204A23';'PrintersFolder' = '76FC4E2D-D6AD-4519-A663-37BD56068185';'PrintHood' = '9274BD8D-CFD1-41C3-B35E-B13F55A758F4';
+        'Profile' = '5E6C858F-0E22-4760-9AFE-EA3317B67173';'ProgramData' = '62AB5D82-FDC1-4DC3-A9DD-070D1D495D97';'ProgramFiles' = '905e63b6-c1bf-494e-b29c-65b732d3d21a';
+        'ProgramFilesX64' = '6D809377-6AF0-444b-8957-A3773F02200E';'ProgramFilesX86' = '7C5A40EF-A0FB-4BFC-874A-C0F2E0B9FA8E';'ProgramFilesCommon' = 'F7F1ED05-9F6D-47A2-AAAE-29D317C6F066';
+        'ProgramFilesCommonX64' = '6365D5A7-0F0D-45E5-87F6-0DA56B6A4F7D';'ProgramFilesCommonX86' = 'DE974D24-D9C6-4D3E-BF91-F4455120B917';'Programs' = 'A77F5D77-2E2B-44C3-A6A2-ABA601054A51';
+        'Public' = 'DFDF76A2-C82A-4D63-906A-5644AC457385';'PublicDesktop' = 'C4AA340D-F20F-4863-AFEF-F87EF2E6BA25';'PublicDocuments' = 'ED4824AF-DCE4-45A8-81E2-FC7965083634';
+        'PublicDownloads' = '3D644C9B-1FB8-4f30-9B45-F670235F79C0';'PublicGameTasks' = 'DEBF2536-E1A8-4c59-B6A2-414586476AEA';'PublicMusic' = '3214FAB5-9757-4298-BB61-92A9DEAA44FF';
+        'PublicPictures' = 'B6EBFB86-6907-413C-9AF7-4FC2ABF07CC5';'PublicVideos' = '2400183A-6185-49FB-A2D8-4A392A602BA3';'QuickLaunch' = '52a4f021-7b75-48a9-9f6b-4b87a210bc8f';
+        'Recent' = 'AE50C081-EBD2-438A-8655-8A092E34987A';'RecycleBinFolder' = 'B7534046-3ECB-4C18-BE4E-64CD4CB7D6AC';'ResourceDir' = '8AD10C31-2ADB-4296-A8F7-E4701232C972';
+        'RoamingAppData' = '3EB685DB-65F9-4CF6-A03A-E3EF65729F3D';'SampleMusic' = 'B250C668-F57D-4EE1-A63C-290EE7D1AA1F';'SamplePictures' = 'C4900540-2379-4C75-844B-64E6FAF8716B';
+        'SamplePlaylists' = '15CA69B3-30EE-49C1-ACE1-6B5EC372AFB5';'SampleVideos' = '859EAD94-2E85-48AD-A71A-0969CB56A6CD';'SavedGames' = '4C5C32FF-BB9D-43b0-B5B4-2D72E54EAAA4';
+        'SavedSearches' = '7d1d3a04-debb-4115-95cf-2f29da2920da';'SEARCH_CSC' = 'ee32e446-31ca-4aba-814f-a5ebd2fd6d5e';'SEARCH_MAPI' = '98ec0e18-2098-4d44-8644-66979315a281';
+        'SearchHome' = '190337d1-b8ca-4121-a639-6d472d16972a';'SendTo' = '8983036C-27C0-404B-8F08-102D10DCFD74';'SidebarDefaultParts' = '7B396E54-9EC5-4300-BE0A-2482EBAE1A26';
+        'SidebarParts' = 'A75D362E-50FC-4fb7-AC2C-A8BEAA314493';'StartMenu' = '625B53C3-AB48-4EC1-BA1F-A1EF4146FC19';'Startup' = 'B97D20BB-F46A-4C97-BA10-5E3608430854';
+        'SyncManagerFolder' = '43668BF8-C14E-49B2-97C9-747784D784B7';'SyncResultsFolder' = '289a9a43-be44-4057-a41b-587a76d7e7f9';'SyncSetupFolder' = '0F214138-B1D3-4a90-BBA9-27CBC0C5389A';
+        'System' = '1AC14E77-02E7-4E5D-B744-2EB1AE5198B7';'SystemX86' = 'D65231B0-B2F1-4857-A4CE-A8E7C6EA7D27';'Templates' = 'A63293E8-664E-48DB-A079-DF759E0509F7';
+        'TreeProperties' = '5b3749ad-b49f-49c1-83eb-15370fbd4882';'UserProfiles' = '0762D272-C50A-4BB0-A382-697DCD729B80';'UsersFiles' = 'f3ce0f7c-4901-4acc-8648-d5d44b04ef8f';
+        'Videos' = @('18989B1D-99B5-455B-841C-AB7C74E4DDFC','35286a68-3c57-41a1-bbb1-0eae73d76c95');'Windows' = 'F38BF404-1D43-42F2-9305-67DE0B28FC23';
+    }
+
+    $Type = ([System.Management.Automation.PSTypeName]'KnownFolders').Type
+    If (-not $Type) {
+        $Signature = @'
+[DllImport("shell32.dll")]
+public extern static int SHSetKnownFolderPath(ref Guid folderId, uint flags, IntPtr token, [MarshalAs(UnmanagedType.LPWStr)] string path);
+'@
+        $Type = Add-Type -MemberDefinition $Signature -Name 'KnownFolders' -Namespace 'SHSetKnownFolderPath' -PassThru
+    }
+
+	If (!(Test-Path $Path -PathType Container)) {
+		New-Item -Path $Path -Type Directory -Force -Verbose
+    }
+
+    If (Test-Path $Path -PathType Container) {
+        ForEach ($guid in $KnownFolders[$KnownFolder]) {
+            Write-Verbose "Redirecting $KnownFolders[$KnownFolder]"
+            $result = $Type::SHSetKnownFolderPath([ref]$guid, 0, 0, $Path)
+            If ($result -ne 0) {
+                $errormsg = "Error redirecting $($KnownFolder). Return code $($result) = $((New-Object System.ComponentModel.Win32Exception($result)).message)"
+                Throw $errormsg
+            }
+        }
+    } Else {
+        Throw New-Object System.IO.DirectoryNotFoundException "Could not find part of the path $Path."
+    }
+	
+	Attrib +r $Path
+    Return $Path
+}
+
+Function Get-KnownFolderPath {
+    Param (
+            [Parameter(Mandatory = $true)]
+            [ValidateSet('AdminTools','ApplicationData','CDBurning','CommonAdminTools','CommonApplicationData','CommonDesktopDirectory','CommonDocuments','CommonMusic',`
+            'CommonOemLinks','CommonPictures','CommonProgramFiles','CommonProgramFilesX86','CommonPrograms','CommonStartMenu','CommonStartup','CommonTemplates',`
+            'CommonVideos','Cookies','Desktop','DesktopDirectory','Favorites','Fonts','History','InternetCache','LocalApplicationData','LocalizedResources','MyComputer',`
+            'MyDocuments','MyMusic','MyPictures','MyVideos','NetworkShortcuts','Personal','PrinterShortcuts','ProgramFiles','ProgramFilesX86','Programs','Recent',`
+            'Resources','SendTo','StartMenu','Startup','System','SystemX86','Templates','UserProfile','Windows')]
+            [string]$KnownFolder
+    )
+    Return [Environment]::GetFolderPath($KnownFolder)
+}
+
+Function Redirect-Folder {
+    Param (
+        $SyncFolder,
+        $GetFolder,
+        $SetFolder,
+        $Target,
+		$copyExistingFiles
+    )
+
+    $Folder = Get-KnownFolderPath -KnownFolder $GetFolder
+    If ($Folder -ne (Join-Path $SyncFolder -ChildPath $Target)) {
+        Write-Verbose "Redirecting $SetFolder to $(Join-Path $SyncFolder -ChildPath $Target)"
+        Set-KnownFolderPath -KnownFolder $SetFolder -Path (Join-Path $SyncFolder -ChildPath $Target)
+        if($copyExistingFiles){
+            Get-ChildItem -Path $Folder -ErrorAction Continue | Copy-Item -Destination (Join-Path $SyncFolder -ChildPath $Target) -Recurse -Container -Force -Confirm:$False -ErrorAction Continue
+        }
+        Attrib +h $Folder
+    } Else {
+        Write-Verbose "Folder $GetFolder matches target. Skipping redirection."
+    }
+}
+
 function getElementById{
     Param(
         [Parameter(Mandatory=$true)]$id
@@ -350,8 +466,8 @@ function JosL-WebRequest{
                                 certutil -user -pulse
                                 Sleep -s 10
                             }else{
-                                Write-Error "Failed to retrieve a valid certificate" -ErrorAction Continue
-                                break
+                                log -text "Failed to find a local certificate to authenticate with" -fout
+                                abort_OM
                             }
                         }
                     }
@@ -730,121 +846,6 @@ function retrieveSettingsFromCache{
     }
 }
 
-function redirectMyDocuments{
-    Param(
-        $driveLetter
-    )
-    $dl = "$($driveLetter)\"
-    $myDocumentsNewPath = Join-Path -Path $dl -ChildPath $redirectToSubfolderName
-    $myDesktopNewPath = Join-Path -Path $myDocumentsNewPath -ChildPath "Desktop"
-    $myPicturesNewPath = Join-Path -Path $myDocumentsNewPath -ChildPath "Pictures"
-    $myVideosNewPath = Join-Path -Path $myDocumentsNewPath -ChildPath "Videos"
-    $myMusicNewPath = Join-Path -Path $myDocumentsNewPath -ChildPath "Music"
-    $myFavoritesNewPath = Join-Path -Path $myDocumentsNewPath -ChildPath "Favorites"
-    $myDownloadsNewPath = Join-Path -Path $myDocumentsNewPath -ChildPath "Downloads"
-    #create folders if necessary
-    $waitedTime = 0    
-    while($true){
-        try{
-            if(![System.IO.Directory]::Exists($myDocumentsNewPath)){
-                $res = New-Item $myDocumentsNewPath -ItemType Directory -ErrorAction Stop
-                Sleep -Milliseconds 200
-            } 
-            if(![System.IO.Directory]::Exists($myDesktopNewPath) -and $redirectDesktop){
-                $res = New-Item $myDesktopNewPath -ItemType Directory -ErrorAction Stop
-                Sleep -Milliseconds 200
-            }               
-            if(![System.IO.Directory]::Exists($myPicturesNewPath) -and $redirectMyDocs){
-                $res = New-Item $myPicturesNewPath -ItemType Directory -ErrorAction Stop
-                Sleep -Milliseconds 200
-            } 
-            if(![System.IO.Directory]::Exists($myVideosNewPath) -and $redirectMyDocs){
-                $res = New-Item $myVideosNewPath -ItemType Directory -ErrorAction Stop
-                Sleep -Milliseconds 200
-            } 
-            if(![System.IO.Directory]::Exists($myMusicNewPath) -and $redirectMyDocs){
-                $res = New-Item $myMusicNewPath -ItemType Directory -ErrorAction Stop
-            } 
-            if(![System.IO.Directory]::Exists($myFavoritesNewPath) -and $redirectFavorites){
-                $res = New-Item $myFavoritesNewPath -ItemType Directory -ErrorAction Stop
-            }
-            if(![System.IO.Directory]::Exists($myDownloadsNewPath) -and $redirectMyDocs){
-                $res = New-Item $myDownloadsNewPath -ItemType Directory -ErrorAction Stop
-            }
-            break
-        }catch{
-            sleep -s 2
-            $waitedTime+=2
-            if($waitedTime -gt 15){
-                log -text "Failed to redirect document libraries because we could not create folders in the target path $dl $($Error[0])" -fout
-                return $False              
-            }      
-        }
-    }
-    try{
-        log -text "Retrieving current document library configuration"
-        $lib = "$Env:appdata\Microsoft\Windows\Libraries\Documents.library-ms"
-        $content = get-content -LiteralPath $lib
-    }catch{
-        log -text "Failed to retrieve document library configuration, will not be able to redirect $($Error[0])" -fout
-        return $False
-    }
-    #Method 1 (works for Win7/8/2008R2)
-    if($redirectMyDocs){
-        try{
-            $strip = $false
-            $count = 0
-            foreach($line in $content){
-                if($line -like "*<searchConnectorDescriptionList>*"){$strip = $True}
-                if($strip){$content[$count]=$Null}
-                $count++
-            }
-            $content+="<searchConnectorDescriptionList>"
-            $content+="<searchConnectorDescription>"
-            $content+="<isDefaultSaveLocation>true</isDefaultSaveLocation>"
-            $content+="<isSupported>false</isSupported>"
-            $content+="<simpleLocation>"
-            $content+="<url>$myDocumentsNewPath</url>"
-            $content+="</simpleLocation>"
-            $content+="</searchConnectorDescription>"
-            $content+="</searchConnectorDescriptionList>"
-            $content+="</libraryDescription>"
-            Set-Content -Value $content -Path $lib -Force -ErrorAction Stop
-            log -text "Modified $lib"
-        }catch{
-            log -text "Failed to redirect document library $($Error[0])" -fout
-            return $False
-        }
-    }
-    #Method 2 (Windows 10+)
-    try{   
-        if($redirectMyDocs){
-            $res = Set-ItemProperty "hkcu:\software\microsoft\windows\currentversion\explorer\User Shell Folders" -Name "Personal" -value $myDocumentsNewPath -ErrorAction Stop        
-            $res = Set-ItemProperty "hkcu:\software\microsoft\windows\currentversion\explorer\User Shell Folders" -Name "{F42EE2D3-909F-4907-8871-4C22FC0BF756}" -value $myDocumentsNewPath -ErrorAction Stop  
-            $res = Set-ItemProperty "hkcu:\software\microsoft\windows\currentversion\explorer\User Shell Folders" -Name "My Video" -value $myVideosNewPath -ErrorAction SilentlyContinue
-            $res = Set-ItemProperty "hkcu:\software\microsoft\windows\currentversion\explorer\User Shell Folders" -Name "{35286A68-3C57-41A1-BBB1-0EAE73D76C95}" -value $myVideosNewPath -ErrorAction SilentlyContinue
-            $res = Set-ItemProperty "hkcu:\software\microsoft\windows\currentversion\explorer\User Shell Folders" -Name "My Music" -value $myMusicNewPath -ErrorAction SilentlyContinue
-            $res = Set-ItemProperty "hkcu:\software\microsoft\windows\currentversion\explorer\User Shell Folders" -Name "{A0C69A99-21C8-4671-8703-7934162FCF1D}" -value $myMusicNewPath -ErrorAction SilentlyContinue
-            $res = Set-ItemProperty "hkcu:\software\microsoft\windows\currentversion\explorer\User Shell Folders" -Name "My Pictures" -value $myPicturesNewPath -ErrorAction SilentlyContinue
-            $res = Set-ItemProperty "hkcu:\software\microsoft\windows\currentversion\explorer\User Shell Folders" -Name "{0DDD015D-B06C-45D5-8C4C-F59713854639}" -value $myPicturesNewPath -ErrorAction SilentlyContinue
-            $res = Set-ItemProperty "hkcu:\software\microsoft\windows\currentversion\explorer\User Shell Folders" -Name "{374DE290-123F-4565-9164-39C4925E467B}" -value $myDownloadsNewPath -ErrorAction SilentlyContinue
-        }
-        if($redirectFavorites){
-            $res = Set-ItemProperty "hkcu:\software\microsoft\windows\currentversion\explorer\User Shell Folders" -Name "Favorites" -value $myFavoritesNewPath -ErrorAction SilentlyContinue
-        }
-        if($redirectDesktop){
-            $res = Set-ItemProperty "hkcu:\software\microsoft\windows\currentversion\explorer\User Shell Folders" -Name "Desktop" -value $myDesktopNewPath -ErrorAction SilentlyContinue
-        }
-        
-        log -text "Modified explorer shell registry entries"
-    }catch{
-        log -text "Failed to redirect document library $($Error[0])" -fout
-        return $False
-    }
-    log -text "Redirection complete"
-    return $True
-}
-
 function checkIfAtO365URL{
     param(
         $userUPN,
@@ -1083,9 +1084,6 @@ function MapDrive{
         #set drive label 
         $Null = labelDrive $MD_DriveLetter $MD_MapURL $MD_DriveLabel
         log -text "$($MD_DriveLetter) mapped successfully`n" 
-        if(($redirectMyDocs -or $redirectDesktop -or $redirectFavorites) -and $driveLetter -eq $MD_DriveLetter){
-            $res = redirectMyDocuments -driveLetter $MD_DriveLetter
-        }
         return $True 
     }else{ 
         log -text "failed to contact $($MD_DriveLetter) after mapping it to $($MD_MapURL), check if the URL is valid. Error: $($error[0]) $out" -fout
@@ -2778,10 +2776,6 @@ if($configurationID -ne "00000000-0000-0000-0000-000000000000"){
     $O365CustomerName = $configuratorSettings.O365CustomerName
     $O365CustomerName = $O365CustomerName.Split(".")[0]
     if($configuratorSettings.deleteUnmanagedDrives -eq "No") {$deleteUnmanagedDrives = $False}else{$deleteUnmanagedDrives = $True}
-    if($configuratorSettings.redirectMyDocuments -eq "Yes") {$redirectMyDocs = $True}else{$redirectMyDocs = $False}
-    if($configuratorSettings.redirectFavorites -eq "Yes") {$redirectFavorites = $True}else{$redirectFavorites = $False}
-    if($configuratorSettings.redirectDesktop -eq "Yes") {$redirectDesktop = $True}else{$redirectDesktop = $False}
-    $redirectToSubfolderName = $configuratorSettings.redirectMyDocumentsName
     if($configuratorSettings.authMethod -eq "IE") {$authMethod = "IE"}else{$authMethod = "native"}
     if($configuratorSettings.allowFallbackMode -eq "No") {$allowFallbackMode = $False}else{$allowFallbackMode = $True}    
     if($configuratorSettings.debugMode -eq "Yes") {$debugmode = $True}else{$debugmode = $False}
@@ -3216,9 +3210,6 @@ $countMapping = 0
 $desiredMappings | % {
     if((checkIfLetterIsMapped -driveLetter $_.driveletter -url $_.url)){
         $desiredMappings[$countMapping].alreadyMapped = $True
-        if(($redirectMyDocs -or $redirectDesktop -or $redirectFavorites) -and $_.driveletter -eq $driveLetter) {
-            $res = redirectMyDocuments -driveLetter $driveLetter
-        }
     }
     $countMapping++
 }
