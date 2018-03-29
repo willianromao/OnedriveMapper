@@ -1054,38 +1054,45 @@ function fixElevationVisibility{
 
 function MapDrive{ 
     Param( 
-        [String]$MD_DriveLetter, 
-        [String]$MD_MapURL, 
-        [String]$MD_DriveLabel 
-    ) 
-    $LASTEXITCODE = 0
-    log -text "Mapping target: $($MD_MapURL)" 
-    try{$del = NET USE $MD_DriveLetter /DELETE /Y 2>&1}catch{$Null}
-    if($persistentMapping){
-        try{$out = NET USE $MD_DriveLetter $MD_MapURL /PERSISTENT:YES 2>&1}catch{$Null}
+        $driveMapping
+    )
+    if($driveMapping.targetLocationType -eq "driveletter"){
+        $LASTEXITCODE = 0
+        log -text "Mapping target: $($driveMapping.webDavPath)" 
+        try{$del = NET USE $($driveMapping.targetLocationPath) /DELETE /Y 2>&1}catch{$Null}
+        if($persistentMapping){
+            try{$out = NET USE $($driveMapping.targetLocationPath) $($driveMapping.webDavPath) /PERSISTENT:YES 2>&1}catch{$Null}
+        }else{
+            try{$out = NET USE $($driveMapping.targetLocationPath) $($driveMapping.webDavPath) /PERSISTENT:NO 2>&1}catch{$Null}
+        }
+        if($out -like "*error 67*"){
+            log -text "ERROR: detected string error 67 in return code of net use command, this usually means the WebClient isn't running" -fout
+        }
+        if($out -like "*error 224*"){
+            log -text "ERROR: detected string error 224 in return code of net use command, this usually means your trusted sites are misconfigured or KB2846960 is missing or Internet Explorer needs a reset" -fout
+        }
+        if($LASTEXITCODE -ne 0){ 
+            log -text "Failed to map $($driveMapping.targetLocationPath) to $($driveMapping.webDavPath), error: $($LASTEXITCODE) $($out) $del" -fout
+            $script:errorsForUser += "$($driveMapping.targetLocationPath) could not be mapped because of error $($LASTEXITCODE) $($out) d$del`n"
+            return $False 
+        } 
+        if([System.IO.Directory]::Exists($driveMapping.targetLocationPath)){ 
+            #set drive label 
+            $Null = labelDrive $($driveMapping.targetLocationPath) $($driveMapping.webDavPath) $($driveMapping.displayName)
+            log -text "$($driveMapping.targetLocationPath) mapped successfully`n" 
+            return $True 
+        }else{ 
+            log -text "failed to contact $($driveMapping.targetLocationPath) after mapping it to $($driveMapping.webDavPath), check if the URL is valid. Error: $($error[0]) $out" -fout
+            return $False 
+        }
     }else{
-        try{$out = NET USE $MD_DriveLetter $MD_MapURL /PERSISTENT:NO 2>&1}catch{$Null}
+        try{
+            Add-NetworkLocation -networkLocationName $($driveMapping.displayName) -networkLocationTarget $($driveMapping.webDavPath) -Verbose
+            log -text "Added network location $($driveMapping.displayName)"
+        }catch{
+            log -text "failed to add network location: $($Error[0])" -fout
+        }
     }
-    if($out -like "*error 67*"){
-        log -text "ERROR: detected string error 67 in return code of net use command, this usually means the WebClient isn't running" -fout
-    }
-    if($out -like "*error 224*"){
-        log -text "ERROR: detected string error 224 in return code of net use command, this usually means your trusted sites are misconfigured or KB2846960 is missing or Internet Explorer needs a reset" -fout
-    }
-    if($LASTEXITCODE -ne 0){ 
-        log -text "Failed to map $($MD_DriveLetter) to $($MD_MapURL), error: $($LASTEXITCODE) $($out) $del" -fout
-        $script:errorsForUser += "$MD_DriveLetter could not be mapped because of error $($LASTEXITCODE) $($out) d$del`n"
-        return $False 
-    } 
-    if([System.IO.Directory]::Exists($MD_DriveLetter)){ 
-        #set drive label 
-        $Null = labelDrive $MD_DriveLetter $MD_MapURL $MD_DriveLabel
-        log -text "$($MD_DriveLetter) mapped successfully`n" 
-        return $True 
-    }else{ 
-        log -text "failed to contact $($MD_DriveLetter) after mapping it to $($MD_MapURL), check if the URL is valid. Error: $($error[0]) $out" -fout
-        return $False 
-    } 
 } 
  
 function revertProtectedMode(){ 
@@ -2928,6 +2935,7 @@ if($authMethod -ne "native"){
 
 $intendedMappings = @() #array with mappings to be made
 $baseURL = ("https://$($O365CustomerName)-my.sharepoint.com/_layouts/15/MySite.aspx?MySiteRedirect=AllDocuments") 
+$mapURLpersonal = "\\$O365CustomerName-my.sharepoint.com@SSL\DavWWWRoot\personal\"
 
 #update progress bar
 if($showProgressBar) {
@@ -2935,35 +2943,27 @@ if($showProgressBar) {
     $form1.Refresh()
 }
 
-<#
-$desiredMappings =  @(
-    @{"mappingTargetType" = "Onedrive";"displayName"="Onedrive for Business";"targetLocationType"="driveletter";"targetLocationPath"="X:";"sourceLocationPath"="autodetect";"mapOnlyForSpecificGroup"="jos"},
-    @{"mappingTargetType" = "Onedrive";"displayName"="Onedrive for Business";"targetLocationType"="networklocation";"targetLocationPath"="$env:APPDATA\Microsoft\Windows\Network Shortcuts";"sourceLocationPath"="autodetect";"mapOnlyForSpecificGroup"=""},
-    @{"mappingTargetType" = "Sharepoint";"displayName"="Sharepoint Site A";"targetLocationType"="driveletter";"targetLocationPath"="Z:";"sourceLocationPath"="https://ogd.sharepoint.com/sites/OGDWerkplek/Gedeelde%20%20documenten/Forms/AllItems.aspx";"mapOnlyForSpecificGroup"=""} #note that the last entry does NOT end with a comma
-)
-#>
-
 $count = 0
 for($count=0;$count -lt $desiredMappings.Count;$count++){
     #replace funky sharepoint URL stuff and turn into webdav path
     if($desiredMappings[$count].sourceLocationPath -ne "autodetect"){
         if($WebAssemblyloaded){
-            $desiredMappings[$count].sourceLocationPath = [System.Web.HttpUtility]::UrlDecode($desiredMappings[$count].sourceLocationPath)
+            $desiredMappings[$count].webDavPath = [System.Web.HttpUtility]::UrlDecode($desiredMappings[$count].sourceLocationPath)
         }
-        $desiredMappings[$count].sourceLocationPath = $desiredMappings[$count].sourceLocationPath.Replace("https://","\\").Replace("/_layouts/15/start.aspx#","").Replace("sharepoint.com/","sharepoint.com@SSL\DavWWWRoot\").Replace("/Forms/AllItems.aspx","")
-        $desiredMappings[$count].sourceLocationPath = $desiredMappings[$count].sourceLocationPath.Replace("/","\")  
+        $desiredMappings[$count].webDavPath = $desiredMappings[$count].webDavPath.Replace("https://","\\").Replace("/_layouts/15/start.aspx#","").Replace("sharepoint.com/","sharepoint.com@SSL\DavWWWRoot\").Replace("/Forms/AllItems.aspx","")
+        $desiredMappings[$count].webDavPath = $desiredMappings[$count].webDavPath.Replace("/","\")  
     }else{
-        $desiredMappings[$count].sourceLocationPath = "\\$O365CustomerName-my.sharepoint.com@SSL\DavWWWRoot\personal\"
+        $desiredMappings[$count].webDavPath = $mapURLpersonal
     }
     #check if driveletters are already mapped
     if($desiredMappings[$count].targetLocationType -eq "driveletter" -and [System.IO.Directory]::Exists($($desiredMappings[$count].targetLocationPath))){
         [string]$mapped_URL = @(Get-WMIObject -query "Select * from Win32_NetworkConnection Where LocalName = '$($desiredMappings[$count].targetLocationPath)'")[0].RemoteName.Replace("DavWWWRoot\","").Replace("@SSL","")  
-        if($mapped_URL.StartsWith($desiredMappings[$count].sourceLocationPath)){
-            log -text "the mapped url for $($desiredMappings[$count].targetLocationPath) ($mapped_URL) matches the expected URL of $($desiredMappings[$count].sourceLocationPath), no need to remap"
+        if($mapped_URL.StartsWith($desiredMappings[$count].webDavPath)){
+            log -text "the mapped url for $($desiredMappings[$count].targetLocationPath) ($mapped_URL) matches the expected URL of $($desiredMappings[$count].webDavPath), no need to remap"
             $desiredMappings[$count].alreadyMapped = $True
         }else{
             $desiredMappings[$count].alreadyMapped = $False
-            log -text "the mapped url for $($desiredMappings[$count].targetLocationPath) ($mapped_URL) does not match the expected partial URL of $($desiredMappings[$count].sourceLocationPath)"
+            log -text "the mapped url for $($desiredMappings[$count].targetLocationPath) ($mapped_URL) does not match the expected partial URL of $($desiredMappings[$count].webDavPath)"
         }                   
     }else{
         $desiredMappings[$count].alreadyMapped = $False        
@@ -3167,7 +3167,7 @@ if($showProgressBar) {
 if($deleteUnmanagedDrives){
     [Array]$currentMappings = @(Get-WMIObject -query "Select * from Win32_NetworkConnection" | where {$_})
     foreach($currentMapping in $currentMappings){
-        if($desiredMappings.driveletter -contains $currentMapping.LocalName){continue}
+        if($desiredMappings.targetLocationPath -contains $currentMapping.LocalName){continue}
         $searchStringSpO = "\\$($O365CustomerName).sharepoint.com"
         $searchStringO4B = "\\$($O365CustomerName)-my.sharepoint.com"
         if($currentMapping.RemoteName.StartsWith($searchStringSpO) -or $currentMapping.RemoteName.StartsWith($searchStringO4B)){
@@ -3176,137 +3176,121 @@ if($deleteUnmanagedDrives){
     }
 }
 
-#username detection method
-if($dontMapO4B -eq $False -and !$desiredMappings[0].alreadyMapped){
-    if($authMethod -ne "native"){
-        #find username
-        $url = $script:ie.LocationURL 
-        $timeSpent = 0
-        while($url.IndexOf("/personal/") -eq -1){
-            log -text "Attempting to detect username at $url, waited for $timeSpent seconds" 
-            $script:ie.navigate($baseURL)
-            waitForIE
-            if($timeSpent -gt 60){
-                log -text "Failed to get the username from the URL for over $timeSpent seconds while at $url, aborting" -fout 
+$count = 0
+for($count=0;$count -lt $desiredMappings.Count;$count++){
+    if($desiredMappings[$count].alreadyMapped){continue}
+    if($desiredMappings[$count].sourceLocationPath -eq "autodetect"){
+        if($authMethod -ne "native"){
+            $url = $script:ie.LocationURL 
+            $timeSpent = 0
+            while($url.IndexOf("/personal/") -eq -1){
+                log -text "Attempting to detect username at $url, waited for $timeSpent seconds" 
+                $script:ie.navigate($baseURL)
+                waitForIE
+                if($timeSpent -gt 60){
+                    log -text "Failed to get the username from the URL for over $timeSpent seconds while at $url, aborting" -fout 
+                    $errorsForUser += "Mapping cannot continue because we cannot detect your username`n"
+                    abort_OM 
+                }
+                Sleep -s 2
+                $timeSpent+=2
+                $url = $script:ie.LocationURL
+            }
+            try{
+                $start = $url.IndexOf("/personal/")+10 
+                $end = $url.IndexOf("/",$start) 
+                $userURL = $url.Substring($start,$end-$start) 
+                $mapURL = $mapURLpersonal + $userURL + "\" + $libraryName 
+            }catch{
+                log -text "Failed to get the username while at $url, aborting" -fout
                 $errorsForUser += "Mapping cannot continue because we cannot detect your username`n"
                 abort_OM 
             }
-            Sleep -s 2
-            $timeSpent+=2
-            $url = $script:ie.LocationURL
-        }
-        try{
-            $start = $url.IndexOf("/personal/")+10 
-            $end = $url.IndexOf("/",$start) 
-            $userURL = $url.Substring($start,$end-$start) 
-            $mapURL = $mapURLpersonal + $userURL + "\" + $libraryName 
-        }catch{
-            log -text "Failed to get the username while at $url, aborting" -fout
-            $errorsForUser += "Mapping cannot continue because we cannot detect your username`n"
-            abort_OM 
-        }
-        $desiredMappings[0].url = $mapURL 
-        log -text "Detected user: $($userURL)"
-        log -text "Onedrive cookie generated, mapping drive..."
-        $mapresult = MapDrive $desiredMappings[0].driveLetter $desiredMappings[0].url $desiredMappings[0].label
-    }else{
-        log -text "Retrieving Onedrive for Business cookie step 1..." 
-        #trigger forced authentication to SpO O4B and follow the redirect
-        try{
-            $res = JosL-WebRequest -url $baseURL -method GET
-            $nextURL = [System.Web.HttpUtility]::HtmlDecode((returnEnclosedFormValue -res $res -searchString "form name=`"fmHF`" id=`"fmHF`" action=`"" -decode))
-            $value = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"t`" id=`"t`" value=`""
-            $body = "t=$value"
-        }catch{
-            log -text "Failed to retrieve cookie for Onedrive for Business: $($Error[0])" -fout
-        }
-        try{
-            if((returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`"" -decode) -ne -1){
-                $nextURL = returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`"" -decode
-                $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
-                $id_token = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"id_token`" value=`""
-                $session_state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"session_state`" value=`""
-                 $body = "code=$code&id_token=$id_token&session_state=$session_state"
-            }
-            if($nextURL.Length -gt 10){
-                log -text "Retrieving Onedrive for Business cookie step 2 at $nextURL"
-                $res = JosL-WebRequest -url $nextURL -Method POST -body $body
-            }else{
-                throw "no next url detected: $nextURL"
-            }
-        }catch{
-            log -text "Problem reported during step 2: $($Error[0])" -fout
-        }
-
-        $stillProvisioning = $True
-        $timeWaited = 0
-        while($stillProvisioning){
-            if($timeWaited -gt 180){
-                $stillProvisioning = $False
-                log -text "Failed to auto provision onedrive and/or retrieve username from the response URL. Is this user licensed?" -fout
-                $userURL = $userUPN.Replace("@","_").Replace(".","_")
-                $mapURL = $mapURLpersonal + $userURL + "\" + $libraryName
-                log -text "Will attempt to use auto-guessed value of $mapURL"
+            $desiredMappings[$count].webDavPath = $mapURL 
+            log -text "Detected user: $($userURL)"
+            log -text "Onedrive cookie generated, mapping drive..."
+            $mapresult = MapDrive $desiredMappings[$count]
+        }else{
+            log -text "Retrieving Onedrive for Business cookie step 1..." 
+            #trigger forced authentication to SpO O4B and follow the redirect
+            try{
+                $res = JosL-WebRequest -url $baseURL -method GET
+                $nextURL = [System.Web.HttpUtility]::HtmlDecode((returnEnclosedFormValue -res $res -searchString "form name=`"fmHF`" id=`"fmHF`" action=`"" -decode))
+                $value = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"t`" id=`"t`" value=`""
+                $body = "t=$value"
+            }catch{
+                log -text "Failed to retrieve cookie for Onedrive for Business: $($Error[0])" -fout
             }
             try{
-                if($res.rawResponse.ResponseUri.OriginalString.IndexOf("/personal/") -ne -1){
-                    $url = $res.rawResponse.ResponseUri.OriginalString
-                    $stillProvisioning = $False
-                    $start = $url.IndexOf("/personal/")+10 
-                    $end = $url.IndexOf("/",$start) 
-                    $userURL = $url.Substring($start,$end-$start) 
-                    $mapURL = $mapURLpersonal + $userURL + "\" + $libraryName
-                    log -text "username detected, your onedrive should be at $mapURL"
-                    break
+                if((returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`"" -decode) -ne -1){
+                    $nextURL = returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`"" -decode
+                    $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
+                    $id_token = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"id_token`" value=`""
+                    $session_state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"session_state`" value=`""
+                    $body = "code=$code&id_token=$id_token&session_state=$session_state"
+                }
+                if($nextURL.Length -gt 10){
+                    log -text "Retrieving Onedrive for Business cookie step 2 at $nextURL"
+                    $res = JosL-WebRequest -url $nextURL -Method POST -body $body
                 }else{
-                    Throw "No username detected in response string"
-                }  
+                    throw "no next url detected: $nextURL"
+                }
             }catch{
-                log -text "Waited for $timeWaited seconds for O4b auto provisioning..."
+                log -text "Problem reported during step 2: $($Error[0])" -fout
             }
-            if($timeWaited -gt 0){
-                $res = JosL-WebRequest -url "https://$($O365CustomerName)-my.sharepoint.com/_layouts/15/MyBraryFirstRun.aspx?FirstRunStage=waiting" -method GET
+
+            $stillProvisioning = $True
+            $timeWaited = 0
+            while($stillProvisioning){
+                if($timeWaited -gt 180){
+                    $stillProvisioning = $False
+                    log -text "Failed to auto provision onedrive and/or retrieve username from the response URL. Is this user licensed?" -fout
+                    $userURL = $userUPN.Replace("@","_").Replace(".","_")
+                    $mapURL = $mapURLpersonal + $userURL + "\" + $libraryName
+                    log -text "Will attempt to use auto-guessed value of $mapURL"
+                }
+                try{
+                    if($res.rawResponse.ResponseUri.OriginalString.IndexOf("/personal/") -ne -1){
+                        $url = $res.rawResponse.ResponseUri.OriginalString
+                        $stillProvisioning = $False
+                        $start = $url.IndexOf("/personal/")+10 
+                        $end = $url.IndexOf("/",$start) 
+                        $userURL = $url.Substring($start,$end-$start) 
+                        $mapURL = $mapURLpersonal + $userURL + "\" + $libraryName
+                        log -text "username detected, your onedrive should be at $mapURL"
+                        break
+                    }else{
+                        Throw "No username detected in response string"
+                    }  
+                }catch{
+                    log -text "Waited for $timeWaited seconds for O4b auto provisioning..."
+                }
+                if($timeWaited -gt 0){
+                    $res = JosL-WebRequest -url "https://$($O365CustomerName)-my.sharepoint.com/_layouts/15/MyBraryFirstRun.aspx?FirstRunStage=waiting" -method GET
+                }
+                sleep -s 10
+                $res = JosL-WebRequest -url $baseURL -method GET
+                $timeWaited += 10
             }
-            sleep -s 10
-            $res = JosL-WebRequest -url $baseURL -method GET
-            $timeWaited += 10
-        }
-        try{
-            setCookies
-        }catch{
-            log -text "Failed to set cookies, error received: $($Error[0])" -fout
-        }
-        $desiredMappings[0].url = $mapURL
-        log -text "Onedrive cookie loop finished, mapping drive..."
-        $mapresult = MapDrive $desiredMappings[0].driveLetter $desiredMappings[0].url $desiredMappings[0].label
-    }
-    if($addShellLink -and $windowsVersion -eq 6 -and [System.IO.Directory]::Exists($desiredMappings[0].driveLetter)){
-        try{
-            $res = createFavoritesShortcutToO4B -targetLocation $desiredMappings[0].driveLetter
-        }catch{
-            log -text "Failed to create a shortcut to the mapped drive for Onedrive for Business because of: $($Error[0])" -fout
-        }
-    }
-}
-
-#update progress bar
-if($showProgressBar) {
-    $script:progressbar1.Value = 50
-    $script:form1.Refresh()
-    $maxAdded = 40
-    $added = 0
-}
-
-foreach($spMapping in $sharepointMappings){
-    $data = $spMapping.Split(",")
-    $desiredMapping = $Null
-    [Array]$desiredMapping = @($desiredMappings | where{$_.alreadyMapped -eq $False -and $_.driveLetter -eq $data[2] -and $_})
-    if($desiredMapping.Count -ne 1){
-        continue
-    }
-    log -text "Initiating session with: $($data[0])"
-    if($data[0] -and $data[1] -and $data[2]){
-        $spURL = $data[0] #URL to browse to
+            try{
+                setCookies
+            }catch{
+                log -text "Failed to set cookies, error received: $($Error[0])" -fout
+            }
+            $desiredMappings[$count].webDavPath = $mapURL 
+            log -text "Onedrive cookie generated, mapping drive..."
+            $mapresult = MapDrive $desiredMappings[$count]
+        } 
+        if($addShellLink -and $windowsVersion -eq 6 -and $desiredMappings[$count].targetLocationType -eq "driveletter" -and [System.IO.Directory]::Exists($desiredMappings[$count].targetLocationPath)){
+            try{
+                $res = createFavoritesShortcutToO4B -targetLocation $desiredMappings[$count].targetLocationPath
+            }catch{
+                log -text "Failed to create a shortcut to the mapped drive for Onedrive for Business because of: $($Error[0])" -fout
+            }
+        }               
+    }else{
+        log -text "Initiating Sharepoint session with: $($desiredMappings[$count].sourceLocationPath)"
+        $spURL = $desiredMappings[$count].sourceLocationPath #URL to browse to
         #original IE method to set cookies
         if($authMethod -ne "native"){
             log -text "Current location: $($script:ie.LocationURL)" 
@@ -3330,7 +3314,7 @@ foreach($spMapping in $sharepointMappings){
             log -text "Retrieving Sharepoint cookie step 1..." 
             #trigger forced authentication to SpO and follow the redirect if needed
             try{
-                $res = JosL-WebRequest -url $data[0] -method GET
+                $res = JosL-WebRequest -url $spURL -method GET
                 $nextURL = [System.Web.HttpUtility]::HtmlDecode((returnEnclosedFormValue -res $res -searchString "form name=`"fmHF`" id=`"fmHF`" action=`"" -decode))               
                 $value = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"t`" id=`"t`" value=`""
                 $body = "t=$value"
@@ -3360,17 +3344,21 @@ foreach($spMapping in $sharepointMappings){
                 log -text "Failed to set cookies, error received: $($Error[0])" -fout
             }
         }
-    }
-    #update progress bar
-    if($showProgressBar) {
-        if($added -le $maxAdded){
-            $script:progressbar1.Value += 10
+        #update progress bar
+        if($showProgressBar) {
+            $script:progressbar1.Value += 5
             $script:form1.Refresh()
         }
-        $added+=10
+        log -text "SpO cookie generated, attempting to map drive"
+        $mapresult = MapDrive $desiredMappings[$count]
     }
-    log -text "SpO cookie generated, attempting to map drive"
-    $mapresult = MapDrive $desiredMapping[0].driveLetter $desiredMapping[0].url $desiredMapping[0].label
+}
+
+
+#update progress bar
+if($showProgressBar) {
+    $script:progressbar1.Value = 50
+    $script:form1.Refresh()
 }
 
 #update progress bar
