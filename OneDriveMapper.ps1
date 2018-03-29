@@ -27,12 +27,26 @@ $adfsMode              = 1                         #1 = use whatever came out of
 $showConsoleOutput     = $True                     #Set this to $False to hide console output
 $showElevatedConsole   = $True
 
-#if you wish to add more, copy the example as you see above, if you don't wish to map any sharepoint sites, simply leave as is
+<#if you wish to add more, add more lines to the below (copy the first above itself). Parameter explanation:
+displayName = the label of the driveletter, or name of the shortcut we'll create to the target site/library
+targetLocationType = driveletter OR networklocation, if you use driveletter, enter a driveletter in targetLocationPath. If you use networklocation, enter a path to a folder where you want the shortcut to be created
+targetLocationPath = enter a driveletter if mapping to a driveletter, enter a folder path if just creating shortcuts
+sourceLocationPath = autodetect or the full URL to the sharepoint / groups site. Autodetect automatically makes this a mapping to Onedrive For Business
+mapOnlyForSpecificGroup = this only works for DOMAIN JOINED devices that can reach a domain controller and means that the mapping will only be made if the user is a member of the group you specify here
+#>
+
+#DEFAULT SETTINGS:
 $desiredMappings =  @(
-    @{"mappingTargetType" = "Onedrive";"displayName"="Onedrive for Business";"targetLocationType"="driveletter";"targetLocationPath"="X:";"sourceLocationPath"="autodetect";"mapOnlyForSpecificGroup"="jos"},
-    @{"mappingTargetType" = "Onedrive";"displayName"="Onedrive for Business";"targetLocationType"="networklocation";"targetLocationPath"="$env:APPDATA\Microsoft\Windows\Network Shortcuts";"sourceLocationPath"="autodetect";"mapOnlyForSpecificGroup"=""},
-    @{"mappingTargetType" = "Sharepoint";"displayName"="Sharepoint Site A";"targetLocationType"="driveletter";"targetLocationPath"="Z:";"sourceLocationPath"="https://ogd.sharepoint.com/sites/OGDWerkplek/Gedeelde%20%20documenten/Forms/AllItems.aspx";"mapOnlyForSpecificGroup"=""} #note that the last entry does NOT end with a comma
+    @{"displayName"="Onedrive for Business";"targetLocationType"="driveletter";"targetLocationPath"="X:";"sourceLocationPath"="autodetect";"mapOnlyForSpecificGroup"=""}
 )
+
+#EXAMPLE SETTINGS (Onedrive for Business, two Sharepoint sites, one mapped to a driveletter, one to a shortcut, the last only when a member of the group SEC-SHAREPOINTA)
+#$desiredMappings =  @(
+#    @{"displayName"="Onedrive for Business";"targetLocationType"="driveletter";"targetLocationPath"="X:";"sourceLocationPath"="autodetect";"mapOnlyForSpecificGroup"=""},
+#    @{"displayName"="Sharepoint Site A";"targetLocationType"="networklocation";"targetLocationPath"="$env:APPDATA\Microsoft\Windows\Network Shortcuts";"sourceLocationPath"="https://ogd.sharepoint.com/sites/OGDWerkplek/Gedeelde%20%20documenten/Forms/AllItems.aspx";"mapOnlyForSpecificGroup"="SEC-SHAREPOINTA"},
+#    @{"displayName"="Sharepoint Site A";"targetLocationType"="driveletter";"targetLocationPath"="Z:";"sourceLocationPath"="https://ogd.sharepoint.com/sites/OGDWerkplek/Gedeelde%20%20documenten/Forms/AllItems.aspx";"mapOnlyForSpecificGroup"=""} #note that the last entry does NOT end with a comma!
+#)
+
 $redirectFolders       = $false #Set to TRUE and configure below hashtable to redirect folders
 $listOfFoldersToRedirect = @(#One line for each folder you want to redirect, only works if redirectFolders=$True. For knownFolderInternalName choose from Get-KnownFolderPath function, for knownFolderInternalIdentifier choose from Set-KnownFolderPath function
     @{"knownFolderInternalName" = "Desktop";"knownFolderInternalIdentifier"="Desktop";"desiredTargetPath"="X:\Desktop";"copyExistingFiles"="true"},
@@ -190,14 +204,7 @@ log -text "-----$(Get-Date) OneDriveMapper v$version - $($env:USERNAME) on $($en
 if($desiredMappings.mapOnlyForSpecificGroup | Where-Object{$_.Length -gt 0}){
     try{
         $groups = ([ADSISEARCHER]"samaccountname=$($env:USERNAME)").Findone().Properties.memberof -replace '^CN=([^,]+).+$','$1'
-        log -text "cached user group membership because you have configured mappings where the mapOnlyForSpecificGroup option was configured"
-        #####################FOR EACH GROUP YOU WISH TO MAP TO A SHAREPOINT LIBRARY, UNCOMMENT AND REPEAT BELOW EXAMPLE, NOTE: THIS MAY FAIL IF THERE ARE REGEX CHARACTERS IN THE NAME 
-        #    $group = $groups -contains "DLG_West District School A - Sharepoint" 
-        #    if($group){ 
-        #       ###REMEMBER, THE BELOW LINE SHOULD CONTAIN 2 COMMA's to distinguish between URL, LABEL and DRIVELETTER 
-        #       $sharepointMappings += "https://ogd.sharepoint.com/district_west/DocumentLibraryName,West District,Y:" 
-        #       log -text "adding a sharepoint mapping because the user is a member of $group" 
-        #    }   
+        log -text "cached user group membership because you have configured mappings where the mapOnlyForSpecificGroup option was configured"   
     }catch{
         log -text "failed to cache user group membership, ignoring these mappings because of: $($Error[0])" -fout
         $desiredMappings = $desiredMappings | Where-Object{$_.mapOnlyForSpecificGroup.Length -eq 0}
@@ -2956,6 +2963,15 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
         }                   
     }else{
         $desiredMappings[$count].alreadyMapped = $False        
+    }
+    if($desiredMappings[$count].mapOnlyForSpecificGroup -and $groups){
+        $group = $groups -contains $desiredMappings[$count].mapOnlyForSpecificGroup
+        if($group){ 
+            log -text "adding a sharepoint mapping because the user is a member of $group" 
+            $desiredMappings[$count].alreadyMapped = $False 
+        }else{
+            $desiredMappings[$count].alreadyMapped = $True
+        }
     }
 }
  
