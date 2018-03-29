@@ -14,11 +14,8 @@ param(
 )
 
 $version = "3.14"
-$configurationID       = "00000000-0000-0000-0000-000000000000"#Don't modify this, unless you are using OnedriveMapper Cloud edition
 
-###If you set a ConfigurationID and are using OnedriveMapper Cloud, no further configuration is required. If you're not using OnedriveMapper Cloud, please finish below configuration.
-
-####MANDATORY MANUAL CONFIGURATION (when not using OnedriveMapper Cloud)
+####MANDATORY MANUAL CONFIGURATION
 $authMethod            = "native"                  #Uses IE automation (old method) when set to ie, uses new native method when set to 'native'
 $O365CustomerName      = "onedrivemapper"          #This should be the name of your tenant (example, ogd as in ogd.onmicrosoft.com) 
 $deleteUnmanagedDrives = $True                     #If set to $True, OnedriveMapper checks if there are 'other' mapped drives to Sharepoint Online/Onedrive that OnedriveMapper does not manage, and disconnects them. This is useful if you change a driveletter.
@@ -108,9 +105,6 @@ if($adfsSmartLink){
 }else{
     $o365loginURL = "https://login.microsoftonline.com/login.srf?msafed=0"
 }
-if($sharepointMappings[0] -eq "https://ogd.sharepoint.com/site1/documentsLibrary,ExampleLabel,Y:"){           ##DO NOT CHANGE THIS
-    $sharepointMappings = @()
-}
 
 $O365CustomerName = $O365CustomerName.ToLower() 
 #for people that don't RTFM, fix wrongly entered customer names:
@@ -140,7 +134,7 @@ function log{
         $text = "INFO | $text"
     }
     try{
-        ac $logfile "$(Get-Date) | $text"
+        Add-Content $logfile "$(Get-Date) | $text"
     }catch{$Null}
     if($showConsoleOutput){
         if($fout){
@@ -193,7 +187,7 @@ ResetLog
 log -text "-----$(Get-Date) OneDriveMapper v$version - $($env:USERNAME) on $($env:COMPUTERNAME) starting-----" 
 
 ###THIS ONLY HAS TO BE CONFIGURED IF YOU WANT TO MAP USER SECURITY GROUPS TO SHAREPOINT SITES
-if($desiredMappings.mapOnlyForSpecificGroup | where{$_.Length -gt 0}){
+if($desiredMappings.mapOnlyForSpecificGroup | Where-Object{$_.Length -gt 0}){
     try{
         $groups = ([ADSISEARCHER]"samaccountname=$($env:USERNAME)").Findone().Properties.memberof -replace '^CN=([^,]+).+$','$1'
         log -text "cached user group membership because you have configured mappings where the mapOnlyForSpecificGroup option was configured"
@@ -206,7 +200,7 @@ if($desiredMappings.mapOnlyForSpecificGroup | where{$_.Length -gt 0}){
         #    }   
     }catch{
         log -text "failed to cache user group membership, ignoring these mappings because of: $($Error[0])" -fout
-        $desiredMappings = $desiredMappings | where{$_.mapOnlyForSpecificGroup.Length -eq 0}
+        $desiredMappings = $desiredMappings | Where-Object{$_.mapOnlyForSpecificGroup.Length -eq 0}
     }
 }
 
@@ -225,7 +219,7 @@ function Add-NetworkLocation
     [CmdLetBinding()]
     param
     (
-        [string]$networkLocationPath="$env:APPDATA\Microsoft\Windows\Network Shortcuts,"
+        [string]$networkLocationPath="$env:APPDATA\Microsoft\Windows\Network Shortcuts",
         [Parameter(Mandatory=$true)][string]$networkLocationName ,
         [Parameter(Mandatory=$true)][string]$networkLocationTarget
     )
@@ -501,7 +495,7 @@ function JosL-WebRequest{
                             $attempts++
                             if($attemps -le 3){
                                 certutil -user -pulse
-                                Sleep -s 10
+                                Start-Sleep -s 10
                             }else{
                                 log -text "Failed to find a local certificate to authenticate with" -fout
                                 abort_OM
@@ -548,7 +542,7 @@ function JosL-WebRequest{
             $request = $Null
             return $retVal
         }catch{
-            if($attempts -ge $maxAttempts){Throw}else{sleep -s 2}
+            if($attempts -ge $maxAttempts){Throw}else{Start-Sleep -s 2}
         }
     }
 }
@@ -628,7 +622,7 @@ function storeSecureString{
     )
     try{
         $stringForFile = $string | ConvertTo-SecureString -AsPlainText -Force -ErrorAction Stop | ConvertFrom-SecureString -ErrorAction Stop
-        $res = Set-Content -Path $filePath -Value $stringForFile -Force -ErrorAction Stop
+        Set-Content -Path $filePath -Value $stringForFile -Force -ErrorAction Stop | Out-Null
     }catch{
         Throw "Failed to store string: $($Error[0] | out-string)"
     }
@@ -739,7 +733,7 @@ function startWebDavClient{
         Add-Type -TypeDefinition $Source -Language CSharp -CompilerParameters $compilerParameters
         [JosL.WebClient.Starter]::startService()
         log -text "Start Service Command completed without errors"
-        sleep -s 5
+        Start-Sleep -s 5
         if((Get-Service -Name WebClient).status -eq "Running"){
             log -text "detected that the webdav client is now running!"
         }else{
@@ -862,11 +856,10 @@ function checkIfAtO365URL{
         try{
             try{
                 $userTile = getElementById -id $lookupQuery
-                $skipNormalLogin = $True
                 log -text "detected user logged in Tile in IE"
                 $userTile.Click()
                 waitForIE
-                Sleep -m 500
+                Start-Sleep -m 500
                 waitForIE
             }catch{$Null}
             $url = $script:ie.LocationURL
@@ -1087,7 +1080,7 @@ function MapDrive{
         }
     }else{
         try{
-            Add-NetworkLocation -networkLocationName $($driveMapping.displayName) -networkLocationTarget $($driveMapping.webDavPath) -Verbose
+            Add-NetworkLocation -networkLocationPath $($driveMapping.targetLocationPath) -networkLocationName $($driveMapping.displayName) -networkLocationTarget $($driveMapping.webDavPath) -Verbose
             log -text "Added network location $($driveMapping.displayName)"
         }catch{
             log -text "failed to add network location: $($Error[0])" -fout
@@ -1114,7 +1107,7 @@ function abort_OM{
     if($showProgressBar) {
         $progressbar1.Value = 100
         $label1.text="Done!"
-        Sleep -Milliseconds 500
+        Start-Sleep -Milliseconds 500
         $form1.Close()
     }
     #find and kill all active COM objects for IE
@@ -1493,7 +1486,7 @@ function Get-ProcessWithOwner {
 
 function waitForIE{
     $waited = 0
-    do {sleep -m 100;$waited+=0.1} until (-not ($script:ie.Busy) -or $waited -gt 15)
+    do {Start-Sleep -m 100;$waited+=0.1} until (-not ($script:ie.Busy) -or $waited -gt 15)
 }
 
 function checkIfMFASetupIsRequired{
@@ -1585,7 +1578,6 @@ function loginV2(){
                 }catch{$Null}
             }
             $apiCanary = returnEnclosedFormValue -res $res -searchString "`"apiCanary`":`""
-            $iwaEndpoint = returnEnclosedFormValue -res $res -searchString "iwaEndpointUrlFormat: `""
             $clientId = returnEnclosedFormValue -res $res -searchString "correlationId`":`""
             #vind session code en gebruik deze om het realm van de user te vinden
             $stsRequest = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"ctx`" value=`""
@@ -2108,7 +2100,7 @@ function login(){
         $script:errorsForUser += "Mapping cannot continue because we could not log in to Office 365`n"
         return $False
     } 
-    sleep -s 2 
+    Start-Sleep -s 2 
     try{
         (getElementById -id "aadTileTitle").click()
         log -text "Work account selected"
@@ -2122,7 +2114,7 @@ function login(){
 
     $redirWaited = 0 
     while($True){ 
-        sleep -m 500 
+        Start-Sleep -m 500 
 
         checkIfMFASetupIsRequired
 
@@ -2213,16 +2205,16 @@ function login(){
                     (getElementById -id "i0118").value = $newPwd 
                     (getElementById -id "i0118").innerText = $newPwd 
                     waitForIE
-                    sleep -s 1
+                    Start-Sleep -s 1
                 }
                 (getElementById -id "idSIButton9").click() 
                 waitForIE
-                sleep -s 1
+                Start-Sleep -s 1
                 #MFA PhoneCall handler
                 try{
                     $tfa_call_status = getElementById -id "idDiv_SAOTCC_Description"
                     log -text "detected you're being called by MFA, waiting 10 seconds so you can reply..."
-                    sleep -s 10
+                    Start-Sleep -s 10
                 }catch{$Null}
                 #MFA Text handler
                 try{
@@ -2232,11 +2224,11 @@ function login(){
                     (getElementById -id "idTxtBx_SAOTCC_OTC").value = $code 
                     (getElementById -id "idTxtBx_SAOTCC_OTC").innerText = $code 
                     waitForIE
-                    sleep -s 1
+                    Start-Sleep -s 1
                     (getElementById -id "idSubmit_SAOTCC_Continue").click() 
                     log -text "clicked MFA button"
                     waitForIE
-                    sleep -s 1
+                    Start-Sleep -s 1
                 }catch{$Null}
                 try{
                     (getElementById -id "idSIButton9").click() 
@@ -2253,7 +2245,7 @@ function login(){
                 log -text "Failed to find the correct controls at $($ie.LocationURL) to log in by script, check your browser and proxy settings or check for an update of this script (2). $($Error[0])" -fout
                 return $False
             }
-            Sleep -s 1
+            Start-Sleep -s 1
             waitForIE
             #check if the error field does not appear, if it does not our attempt was succesfull
             if((checkErrorAtLoginValue -mode "msonline") -eq $False){
@@ -2318,7 +2310,7 @@ function login(){
                     }
                     (getElementById -id $adfsButton).click() 
                     waitForIE 
-                    sleep -s 1 
+                    Start-Sleep -s 1 
                     waitForIE  
                     if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs) -eq $True){
                         #we've been logged in, we can abort the login function 
@@ -2415,7 +2407,6 @@ function getUserLogin{
         switch($userLookupMode){
             1 {    
                 log -text "userLookupMode is set to 1 -> checking Active Directory UPN" 
-                $failed = $False
                 try{
                     $userUPN = (lookupLoginFromAD).ToLower()
                     $Null = retrieveLogin -cacheLogin $userUPN
@@ -2545,7 +2536,7 @@ function checkWebClient{
     if((Get-Service -Name WebClient).Status -ne "Running"){ 
         #attempt to auto-start if user is admin
         if($isElevated){
-            $res = Start-Service WebClient -ErrorAction SilentlyContinue
+            Start-Service WebClient -ErrorAction SilentlyContinue | Out-Null
         }else{
             #use another trick to autostart the client
             try{
@@ -2690,7 +2681,7 @@ if($showProgressBar) {
     $form1.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None 
     #display center screen
     $form1.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
-    $screen = ([System.Windows.Forms.Screen]::AllScreens | where {$_.Primary}).WorkingArea
+    $screen = ([System.Windows.Forms.Screen]::AllScreens | Where-Object {$_.Primary}).WorkingArea
     $form1.Location = New-Object System.Drawing.Size(($screen.Right - $width), ($screen.Bottom - $height))
     $form1.Topmost = $True 
     $form1.TopLevel = $True 
@@ -2744,7 +2735,7 @@ if($versionCheck){
         if($showProgressBar) {
             $form1.controls["Label1"].Text = "New OnedriveMapper version available!"
             $form1.Refresh()
-            Sleep -s 1
+            Start-Sleep -s 1
             $form1.controls["Label1"].Text = "OnedriveMapper v$version is connecting your drives..."
             $form1.Refresh()
         }
@@ -2933,7 +2924,6 @@ if($authMethod -ne "native"){
 
 #endregion
 
-$intendedMappings = @() #array with mappings to be made
 $baseURL = ("https://$($O365CustomerName)-my.sharepoint.com/_layouts/15/MySite.aspx?MySiteRedirect=AllDocuments") 
 $mapURLpersonal = "\\$O365CustomerName-my.sharepoint.com@SSL\DavWWWRoot\personal\"
 
@@ -2943,7 +2933,6 @@ if($showProgressBar) {
     $form1.Refresh()
 }
 
-$count = 0
 for($count=0;$count -lt $desiredMappings.Count;$count++){
     #replace funky sharepoint URL stuff and turn into webdav path
     if($desiredMappings[$count].sourceLocationPath -ne "autodetect"){
@@ -2968,7 +2957,6 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
     }else{
         $desiredMappings[$count].alreadyMapped = $False        
     }
-    $count++
 }
  
 if(@($desiredMappings | where-object{$_.alreadyMapped -eq $False}).Count -le 0){
@@ -2995,7 +2983,7 @@ if($authMethod -ne "native" -and $autoKillIE){
     #start invisible IE instance 
     $tempIE = new-object -com InternetExplorer.Application 
     $tempIE.visible = $debugmode 
-    sleep 2 
+    Start-Sleep 2 
  
     #kill all running IE instances of this user 
     $ieStatus = Get-ProcessWithOwner iexplore 
@@ -3052,7 +3040,7 @@ if($authMethod -ne "native"){
 
     #retry above if failed
     if($COMFailed){
-        Sleep -s 30
+        Start-Sleep -s 30
         try{ 
             $script:ie = new-object -com InternetExplorer.Application -ErrorAction Stop
             $script:ie.visible = $debugmode 
@@ -3075,7 +3063,7 @@ if($authMethod -ne "native"){
     try{ 
         $script:ie.navigate("https://login.microsoftonline.com/logout.srf")
         waitForIE
-        sleep -s 1
+        Start-Sleep -s 1
         waitForIE
         if($userLookupMode -ne 3){
             try{
@@ -3087,7 +3075,7 @@ if($authMethod -ne "native"){
         }
         $script:ie.navigate($o365loginURL) 
         waitForIE
-        sleep -s 1
+        Start-Sleep -s 1
     }catch{ 
         log -text "Failed to browse to the Office 365 Sign in page, this is a fatal error $($Error[0])`n" -fout
         $errorsForUser += "Mapping cannot continue because we could not contact Office 365`n"
@@ -3142,8 +3130,8 @@ if($authMethod -ne "native"){
     }
     $script:ie.navigate($baseURL) 
     waitForIE
-    do {sleep -m 100} until ($script:ie.ReadyState -eq 4 -or $script:ie.ReadyState -eq 0)  
-    Sleep -s 2
+    do {Start-Sleep -m 100} until ($script:ie.ReadyState -eq 4 -or $script:ie.ReadyState -eq 0)  
+    Start-Sleep -s 2
 }else{
     $res = loginV2
     if($res -eq $False){
@@ -3165,7 +3153,7 @@ if($showProgressBar) {
 
 #delete mappings to Sharepoint / Onedrive that aren't managed by OnedriveMapper
 if($deleteUnmanagedDrives){
-    [Array]$currentMappings = @(Get-WMIObject -query "Select * from Win32_NetworkConnection" | where {$_})
+    [Array]$currentMappings = @(Get-WMIObject -query "Select * from Win32_NetworkConnection" | Where-Object {$_})
     foreach($currentMapping in $currentMappings){
         if($desiredMappings.targetLocationPath -contains $currentMapping.LocalName){continue}
         $searchStringSpO = "\\$($O365CustomerName).sharepoint.com"
@@ -3176,7 +3164,6 @@ if($deleteUnmanagedDrives){
     }
 }
 
-$count = 0
 for($count=0;$count -lt $desiredMappings.Count;$count++){
     if($desiredMappings[$count].alreadyMapped){continue}
     if($desiredMappings[$count].sourceLocationPath -eq "autodetect"){
@@ -3192,7 +3179,7 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
                     $errorsForUser += "Mapping cannot continue because we cannot detect your username`n"
                     abort_OM 
                 }
-                Sleep -s 2
+                Start-Sleep -s 2
                 $timeSpent+=2
                 $url = $script:ie.LocationURL
             }
@@ -3268,7 +3255,7 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
                 if($timeWaited -gt 0){
                     $res = JosL-WebRequest -url "https://$($O365CustomerName)-my.sharepoint.com/_layouts/15/MyBraryFirstRun.aspx?FirstRunStage=waiting" -method GET
                 }
-                sleep -s 10
+                Start-Sleep -s 10
                 $res = JosL-WebRequest -url $baseURL -method GET
                 $timeWaited += 10
             }
@@ -3298,7 +3285,7 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
             $waited = 0
             waitForIE
             while($($ie.LocationURL) -notlike "$spURL*"){
-                sleep -s 1
+                Start-Sleep -s 1
                 $waited++
                 log -text "waited $waited seconds to load $spURL, currently at $($ie.LocationURL)"
                 if($waited -ge $maxWaitSecondsForSpO){
