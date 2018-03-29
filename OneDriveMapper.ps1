@@ -4,28 +4,14 @@
 #Author:            Jos Lieben (OGD)
 #Company:           OGD (http://www.ogd.nl) 
 #Script help:       http://www.lieben.nu, please provide a decrypted Fiddler Trace Log if you're using Native auth and having issues
-#Purpose:           This script maps Onedrive for Business and maps a configurable number of Sharepoint Libraries
+#Purpose:           This script maps Onedrive for Business and/or maps a configurable number of Sharepoint Libraries
 #Enterprise users:  This script is not recommended for Enterprise use as no dedicated support is available. Check www.lieben.nu for enterprise options.
-
-#TODO:
-#explorer restart only if logon process complete? https://gallery.technet.microsoft.com/scriptcenter/Analyze-Session-Logon-63e02691
-#auto update replace config ID issue
-#optionally, use PSDrive
-#AzureADSSO for IE retest, device cert
-#handling user based distribution vs device based
-#sso for AzureAD Joined devices using native method
-#explanation video of all settings
-#optionally don't display version check information
-#adfs login velden robuuster opzoeken
-#decrypt stored password on different pc's
-#handle MFA in native auth mode
 
 param(
     [Switch]$asTask,
     [Switch]$fallbackMode,
     [Switch]$hideConsole
 )
-
 
 $version = "3.14"
 $configurationID       = "00000000-0000-0000-0000-000000000000"#Don't modify this, unless you are using OnedriveMapper Cloud edition
@@ -34,22 +20,22 @@ $configurationID       = "00000000-0000-0000-0000-000000000000"#Don't modify thi
 
 ####MANDATORY MANUAL CONFIGURATION (when not using OnedriveMapper Cloud)
 $authMethod            = "native"                  #Uses IE automation (old method) when set to ie, uses new native method when set to 'native'
-$driveLetter           = "X:"                      #This is the driveletter you'd like to use for OneDrive, for example: Z: 
-$driveLabel            = "Onedrive WebDAV"                #If you enter a name here, the script will attempt to label the drive with this value 
 $O365CustomerName      = "onedrivemapper"          #This should be the name of your tenant (example, ogd as in ogd.onmicrosoft.com) 
 $deleteUnmanagedDrives = $True                     #If set to $True, OnedriveMapper checks if there are 'other' mapped drives to Sharepoint Online/Onedrive that OnedriveMapper does not manage, and disconnects them. This is useful if you change a driveletter.
 $debugmode             = $False                    #Set to $True for debugging purposes. You'll be able to see the script navigate in Internet Explorer if you're using IE auth mode
 $userLookupMode        = 1                         #1 = Active Directory UPN, 2 = Active Directory Email, 3 = Azure AD Joined Windows 10, 4 = query user for his/her login, 5 = lookup by registry key, 6 = display full form (ask for both username and login if no cached versions can be found), 7 = whoami /upn
 $AzureAADConnectSSO    = $False                    #NOT NEEDED FOR NATIVE AUTH, if set to True, will automatically remove AzureADSSO registry key before mapping, and then readd them after mapping. Otherwise, mapping fails because AzureADSSO creates a non-persistent cookie
-$lookupUserGroups      = $False                    #Set this to $True if you want to map user security groups to Sharepoint Sites (read below for additional required configuration)
 $adfsWaitTime          = 10                        #Amount of seconds to allow for SSO (ADFS or AzureAD or any other configured SSO provider) redirects, if set too low, the script may fail while just waiting for a slow redirect, this is because the IE object will report being ready even though it is not.  Set to 0 if using passwords to sign in.
 $adfsMode              = 1                         #1 = use whatever came out of userLookupMode, 2 = use only the part before the @ in the upn, 3 = use user certificate (local user store) and match Subject to Username
 $showConsoleOutput     = $True                     #Set this to $False to hide console output
 $showElevatedConsole   = $True
-$sharepointMappings    = @()
-$sharepointMappings    += "https://ogd.sharepoint.com/site1/documentsLibrary,ExampleLabel,Y:" #for each sharepoint site you wish to map 3 comma seperated values are required, the 'clean' url to the library (see example), the desired drive label, and the driveletter
+
 #if you wish to add more, copy the example as you see above, if you don't wish to map any sharepoint sites, simply leave as is
-$redirectFolders       = $false
+$mappings =  @(
+    @{"mappingTarget" = "Onedrive";"driveLabel"="Onedrive for Business";"targetLocationType"="driveletter";"targetLocationName"="X:"},
+    @{"mappingTarget" = "Sharepoint";"driveLabel"="Sharepoint Site A";"targetLocationType"="driveletter";"targetLocationName"="Z:"} #note that the last entry does NOT end with a comma
+)
+$redirectFolders       = $false #Set to TRUE and configure below hashtable to redirect folders
 $listOfFoldersToRedirect = @(#One line for each folder you want to redirect, only works if redirectFolders=$True. For knownFolderInternalName choose from Get-KnownFolderPath function, for knownFolderInternalIdentifier choose from Set-KnownFolderPath function
     @{"knownFolderInternalName" = "Desktop";"knownFolderInternalIdentifier"="Desktop";"desiredTargetPath"="X:\Desktop";"copyExistingFiles"="true"},
     @{"knownFolderInternalName" = "MyDocuments";"knownFolderInternalIdentifier"="Documents";"desiredTargetPath"="X:\My Documents";"copyExistingFiles"="true"},
@@ -86,8 +72,6 @@ $addShellLink          = $False                    #Adds a link to Onedrive to t
 $logfile               = ($env:APPDATA + "\OneDriveMapper_$version.log")    #Logfile to log to 
 $pwdCache              = ($env:APPDATA + "\OneDriveMapper.tmp")    #file to store encrypted password into, change to $Null to disable
 $loginCache            = ($env:APPDATA + "\OneDriveMapper.tmp2")    #file to store encrypted login into, change to $Null to disable
-$settingsCache         = ($env:APPDATA + "\OneDriveMapper.cache")    #file to store encrypted settings in case server isn't reachable, change to $Null to disable
-$dontMapO4B            = $False                    #If you're only using Sharepoint Online mappings (see below), set this to True to keep the script from mapping the user's O4B
 $allowFallbackMode     = $True                     #if set to True, and the selected authentication method fails, onedrivemapper will try again using the other authentication method
 
 if($hideConsole){
@@ -127,7 +111,6 @@ if($sharepointMappings[0] -eq "https://ogd.sharepoint.com/site1/documentsLibrary
     $sharepointMappings = @()
 }
 
-$debugInfo = $Null
 $O365CustomerName = $O365CustomerName.ToLower() 
 #for people that don't RTFM, fix wrongly entered customer names:
 $O365CustomerName = $O365CustomerName -Replace ".onmicrosoft.com",""
@@ -209,7 +192,7 @@ ResetLog
 log -text "-----$(Get-Date) OneDriveMapper v$version - $($env:USERNAME) on $($env:COMPUTERNAME) starting-----" 
 
 ###THIS ONLY HAS TO BE CONFIGURED IF YOU WANT TO MAP USER SECURITY GROUPS TO SHAREPOINT SITES
-if($lookupUserGroups -and $configurationID -eq "00000000-0000-0000-0000-000000000000"){
+if($lookupUserGroups){
     try{
         $groups = ([ADSISEARCHER]"samaccountname=$($env:USERNAME)").Findone().Properties.memberof -replace '^CN=([^,]+).+$','$1'
         log -text "cached user group membership because lookupUserGroups was set to True"
@@ -480,29 +463,6 @@ function ConvertFrom-Json20([object] $item){
     return ,$ps_js.DeserializeObject($item)
 }
 
-function Create-Cookie{
-    Param(
-        $name,
-        $value,
-        $domain,
-        $path="/",
-        $HttpOnly=$True,
-        $Secure=$True,
-        $Expires
-    )
-    $c=New-Object System.Net.Cookie;
-    $c.Name=$name;
-    $c.Path=$path;
-    $c.Value = $value
-    $c.Domain =$domain;
-    $c.HttpOnly = $HttpOnly;
-    $c.Secure = $Secure;
-    if($Expires){
-        $c.Expires = $Expires
-    }
-    return $c;
-}
-
 function JosL-WebRequest{
     Param(
         $url,
@@ -563,14 +523,8 @@ function JosL-WebRequest{
                 }
             }
             $request.UserAgent = "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.0; WOW64; Trident/7.0; .NET4.0C; .NET4.0E); OneDriveMapper/$version"
-            
             $request.ContentType = $contentType
             $request.CookieContainer = $script:cookiejar
-            $script:debugInfo += "JOSL-REQUEST "
-            $script:debugInfo += $request.Method
-            $script:debugInfo += $url
-            $script:debugInfo += "`r"
-            $script:debugInfo += $body
             if($method -eq "POST"){
                 $body = [byte[]][char[]]$body
                 $upStream = $request.GetRequestStream()
@@ -586,16 +540,10 @@ function JosL-WebRequest{
             $stream = $response.GetResponseStream()
             $streamReader = [System.IO.StreamReader]($stream)
             $retVal.Content = $streamReader.ReadToEnd()
-            $script:debugInfo += "JOSL-RESPONSE "
-            $script:debugInfo += $retVal.StatusCode
-            $script:debugInfo += " $($response.ResponseUri )"
-            $script:debugInfo += "`r"
-            $script:debugInfo += $retVal.Content
             $streamReader.Close()
             $response.Close()
             $response = $Null
             $request = $Null
-
             return $retVal
         }catch{
             if($attempts -ge $maxAttempts){Throw}else{sleep -s 2}
@@ -800,22 +748,6 @@ function startWebDavClient{
     }
 }
 
-function Pause{
-   Read-Host 'Press Enter to continue...' | Out-Null
-}
-
-function storeSettingsToCache{
-    Param(
-        [Parameter(Mandatory=$true)]$settingsCache,
-        [Parameter(Mandatory=$true)]$settings
-    )
-    try{
-        Export-Clixml -Depth 6 -Path $settingsCache -InputObject $settings -Force -Encoding UTF8 -Confirm:$False -ErrorAction Stop
-    }catch{
-        Throw
-    }
-}
-
 function queryForAllCreds {
     Param(
         [Parameter(Mandatory=$true)]$titleText,
@@ -907,18 +839,6 @@ function queryForAllCreds {
 
     $objTextBox2.Text
     $objTextBox3.Text
-}
-
-function retrieveSettingsFromCache{
-    Param(
-        [Parameter(Mandatory=$true)]$settingsCache
-    )
-    try{
-        $settings = Import-Clixml -Path $settingsCache -ErrorAction Stop
-        return $settings
-    }catch{
-        Throw
-    }
 }
 
 function checkIfAtO365URL{
@@ -1148,7 +1068,7 @@ function MapDrive{
         log -text "ERROR: detected string error 67 in return code of net use command, this usually means the WebClient isn't running" -fout
     }
     if($out -like "*error 224*"){
-        log -text "ERROR: detected string error 224 in return code of net use command, this usually means your trusted sites are misconfigured or KB2846960 is missing" -fout
+        log -text "ERROR: detected string error 224 in return code of net use command, this usually means your trusted sites are misconfigured or KB2846960 is missing or Internet Explorer needs a reset" -fout
     }
     if($LASTEXITCODE -ne 0){ 
         log -text "Failed to map $($MD_DriveLetter) to $($MD_MapURL), error: $($LASTEXITCODE) $($out) $del" -fout
@@ -1211,15 +1131,6 @@ function abort_OM{
         if($autoProtectedMode){ 
             revertProtectedMode 
         } 
-    }else{
-        if($debugMode -and $authMethod -eq "native"){
-            try{
-                $debugFilePath = Join-path (split-path $logfile -Parent) -ChildPath "OnedriveMapper.debug"
-                $debugInfo | Out-File -FilePath $debugFilePath -Force -Confirm:$False -ErrorAction Stop -Encoding UTF8
-            }catch{
-                log -text "Error writing debug file: $($Error[0])" -fout
-            }
-        }
     }
     handleAzureADConnectSSO
     log -text "OnedriveMapper has finished running"
@@ -1738,7 +1649,7 @@ function loginV2(){
     }
 
     if(!$adfsSmartLink){
-        $jsonRealmConfig = ConvertFrom-Json20 -item $res.Content
+        $jsonRealmConfig = ConvertFrom-Json $res.Content
         $mode = $Null
         if($jsonRealmConfig.Credentials.FederationRedirectUrl){
             $mode = "Federated"
@@ -2680,53 +2591,6 @@ function checkWebClient{
     } 
 }
 
-function autoUpdate{
-    param(
-        [Parameter(Mandatory=$true)]$desiredVersion,
-        [Parameter(Mandatory=$true)]$newVersionPath
-    )
-    if($desiredVersion -gt $version){
-        #a newer version of the script is set to deploy
-        $pathToSelf = $script:MyInvocation.MyCommand.Path
-        log -text "New version detected: $desiredVersion, auto updating from $version at $pathToSelf"
-        log -text "Attempting to download from $newVersionPath"
-        try{
-            $req = JosL-WebRequest -url $newVersionPath -method GET
-            log -text "New version retrieved succesfully, replacing..."
-        }catch{
-            log -text "Failed to download new version: $($Error[0])" -fout
-            Throw
-        }
-        try{
-            $req.Content | Out-File -FilePath $pathToSelf -Force -Confirm:$False -ErrorAction Stop
-            $newContent = ""
-            $found = $False
-            (Get-Content $pathToSelf) | % {
-                if(!$found -and $_.IndexOf("#Don't modify this, unless you are using OnedriveMapper Cloud edition") -ge 0){
-                    $line = "`$configurationID       = `"$($configurationID)`"#Don't modify this, unless you are using OnedriveMapper Cloud edition"
-                    if($line){
-                        $found = $True
-                    }
-                }
-                if($line){
-                    $newContent += $line
-                    $line=$Null
-                }else{
-                    $newContent += $_
-                }
-                $newContent += "`r`n"
-            }
-            $newContent | Out-File -FilePath $pathToSelf -Force -Confirm:$False -ErrorAction Stop
-            log -text "Replaced old version, update succesfull!"
-        }catch{
-            log -text "failed to overwrite old version of the script, reason: $($Error[0])" -fout
-            Throw
-        }
-        #start new version
-        restartMe
-    }
-}
-
 function restartMe{
     Param(
         [Switch]$fallBackMode
@@ -2812,97 +2676,6 @@ $objUser = New-Object System.Security.Principal.NTAccount($Env:USERNAME)
 $strSID = ($objUser.Translate([System.Security.Principal.SecurityIdentifier])).Value
 log -text "You are $strSID running on Windows $windowsVersion with IE $ieVersion and Powershell version $($PSVersionTable.PSVersion.Major)"
 
-#load settings from OnedriveMapper Cloud Configurator if licensed
-if($configurationID -ne "00000000-0000-0000-0000-000000000000"){
-    $loadFromFile = $False
-    try{
-        log -text "configurationID set to $configurationID, retrieving associated settings from lieben.nu..."
-        $rawSettingsResponse = JosL-WebRequest -url "http://om.lieben.nu/lieben_api.php?cid=$configurationID&ieVersion=$ieVersion&winVersion=$windowsVersion&oVersion=$version&uid=$strSID"
-        $configuratorSettings = ConvertFrom-Json20 $rawSettingsResponse.Content
-        log -text "settings retrieved, processing..."
-    }catch{
-        $loadFromFile = $True
-        log -text "failed to retrieve settings from lieben.nu using $configurationID because of $($Error[0]), content of request: $($rawSettingsReponse.Content)" -fout
-    }
-    if($settingsCache -and !$loadFromFile){
-        try{
-            log -text "Caching settings to file..."
-            storeSettingsToCache -settingsCache $settingsCache -settings $configuratorSettings
-            log -text "Cached settings to file"
-        }catch{
-            log -text "Failed to cache settings to file: $($Error[0])" -fout
-        }
-    }
-    if($loadFromFile){
-        log -text "attempting to load cached settings from a previous request"
-        try{
-            if($settingsCache){
-                $configuratorSettings = retrieveSettingsFromCache -settingsCache $settingsCache
-            }else{
-                Throw "Settings cache was disabled in script configuration"
-            }
-        }catch{
-            log -text "failed to retrieve settings from cache $($Error[0])" -fout
-            $script:errorsForUser="could not retrieve settings, check your connection"
-            abort_OM
-        }
-    }
-
-    $O365CustomerName = $configuratorSettings.O365CustomerName
-    $O365CustomerName = $O365CustomerName.Split(".")[0]
-    if($configuratorSettings.deleteUnmanagedDrives -eq "No") {$deleteUnmanagedDrives = $False}else{$deleteUnmanagedDrives = $True}
-    if($configuratorSettings.authMethod -eq "IE") {$authMethod = "IE"}else{$authMethod = "native"}
-    if($configuratorSettings.allowFallbackMode -eq "No") {$allowFallbackMode = $False}else{$allowFallbackMode = $True}    
-    if($configuratorSettings.debugMode -eq "Yes") {$debugmode = $True}else{$debugmode = $False}
-    $userLookupMode = $configuratorSettings.userLookupMode
-    if($configuratorSettings.AzureAADConnectSSO -eq "No") {$AzureAADConnectSSO = $False}else{$AzureAADConnectSSO = $True}
-    if($configuratorSettings.lookupUserGroups -eq "Yes") {
-        try{
-            $groups = ([ADSISEARCHER]"samaccountname=$($env:USERNAME)").Findone().Properties.memberof -replace '^CN=([^,]+).+$','$1'
-            log -text "cached user group membership because lookupUserGroups was set to True"   
-            $lookupUserGroups = $True 
-        }catch{
-            log -text "Failed to cache user group membership because of $($Error[0])" -fout
-        }
-    }else{$lookupUserGroups = $False}
-    $forceUserName = $configuratorSettings.forceUserName
-    $forcePassword = $configuratorSettings.forcePassword
-    if($configuratorSettings.restartExplorer -eq "Yes") {$restartExplorer = $True}else{$restartExplorer = $False}
-    if($configuratorSettings.addShellLink -eq "Yes") {$addShellLink = $True}else{$addShellLink = $False}
-    if($configuratorSettings.persistentMapping -eq "No") {$persistentMapping = $False}else{$persistentMapping = $True}
-    if($configuratorSettings.autoProtectedMode -eq "No") {$autoProtectedMode = $False}else{$autoProtectedMode = $True}
-    $adfsWaitTime = $configuratorSettings.adfsWaitTime
-    $libraryName = $configuratorSettings.libraryName
-    if($configuratorSettings.autoKillIE -eq "No") {$autoKillIE = $False}else{$autoKillIE = $True}
-    if($configuratorSettings.abortIfNoAdfs -eq "Yes") {$abortIfNoAdfs = $True}else{$abortIfNoAdfs = $False}
-    $adfsMode = $configuratorSettings.adfsMode
-    if($configuratorSettings.adfsSmartLink.Length -gt 5){
-        $adfsSmartLink = $configuratorSettings.adfsSmartLink
-    }
-    if($configuratorSettings.displayErrors -eq "No") {$displayErrors = $False}else{$displayErrors = $True}
-    $buttonText = $configuratorSettings.buttonText
-    $loginformIntroText = $configuratorSettings.loginformIntroText
-    $loginFieldText = $configuratorSettings.loginFieldText
-    $passwordFieldText = $configuratorSettings.passwordFieldText
-    $adfsLoginInput = $configuratorSettings.adfsLoginInput
-    $adfsPwdInput = $configuratorSettings.adfsPwdInput
-    $adfsButton = $configuratorSettings.adfsButton
-    $urlOpenAfter = $configuratorSettings.urlOpenAfter
-    if($configuratorSettings.showConsoleOutput -eq "No") {$showConsoleOutput = $False}else{$showConsoleOutput = $True}
-    if($configuratorSettings.showElevatedConsole -eq "No") {$showElevatedConsole = $False}else{$showElevatedConsole = $True}
-    if($configuratorSettings.showProgressBar -eq "No") {$showProgressBar = $False}else{$showProgressBar = $True}
-    if($configuratorSettings.progressBarColor) {$progressBarColor = $configuratorSettings.progressBarColor}
-    if($configuratorSettings.autoDetectProxy -eq "Yes") {$autoDetectProxy = $True}else{$autoDetectProxy = $False}
-    log -text "Settings determined, starting..."
-    if($configuratorSettings.allowAutoUpdate -eq "Yes"){
-        try{
-            autoUpdate -newVersionPath $configuratorSettings.newVersionPath -desiredVersion $configuratorSettings.desiredVersion
-        }catch{
-            log -text "failed to update to new OnedriveMapper version" -fout
-        }
-    }
-}
-
 if($showConsoleOutput -eq $False){
     $t = '[DllImport("user32.dll")] public static extern bool ShowWindow(int handle, int state);'
     try{
@@ -2925,14 +2698,6 @@ if($authMethod -eq "native" -and $PSVersionTable.PSVersion.Major -le 2){
     log -text "ERROR: you're trying to use Native auth on Powershell V2 or lower, switching to IE mode" -fout
     $authMethod = "IE"
 }
-
-$driveLetterENVVAR = $Env:ONEDRIVEMAPPER
-if (($driveLetterENVVAR -ne $Null) -and ($driveLetterENVVAR -ne "")){
-    if (($driveLetterENVVAR.Length -eq 2) -and ($driveLetterENVVAR.EndsWith(":") -eq $true)){
-        log -text "Valid driveletter found in Environment Variable called OnedriveMapper, using $driveLetterENVVAR"
-        $driveLetter=$driveLetterENVVAR
-    }
-} 
 
 #show a progress bar if set to True
 if($showProgressBar) {
@@ -3203,63 +2968,14 @@ if($authMethod -ne "native"){
 
 #translate to URLs 
 $mapURLpersonal = ("\\"+$O365CustomerName+"$($privateSuffix).sharepoint.com@SSL\DavWWWRoot\personal\") 
-
 $desiredMappings = @() #array with mappings to be made
+$baseURL = ("https://$($O365CustomerName)-my.sharepoint.com/_layouts/15/MySite.aspx?MySiteRedirect=AllDocuments") 
 
-#add the O4B mapping first, with an incorrect URL that will be updated later on because we haven't logged in yet and can't be sure of the URL
-if($configurationID -ne "00000000-0000-0000-0000-000000000000"){
-    [Array]$o4bMappings = @($configuratorSettings.mappings | where{$_.Type -eq "Onedrive" -and $_})
-    if($o4bMappings.Count -eq 1){
-        $dontMapO4B = $False
-        $desiredMappings += addMapping -driveLetter $o4bMappings[0].Driveletter -url $mapURLpersonal -label $o4bMappings[0].Label
-        $driveLetter = $o4bMappings[0].Driveletter
-        $driveLabel = $o4bMappings[0].Label
-    }else{
-        $dontMapO4B = $True
-        log -text "0 or more than 1 mappings to Onedrive returned by the web service, will not map Onedrive for Business"
-    }
-}else{
-    if($dontMapO4B){
-        log -text "Not mapping O4B because dontMapO4B is set to True"
-    }else{
-        $desiredMappings += addMapping -driveLetter $driveLetter -url $mapURLpersonal -label $driveLabel
-    }
-}
-
-if($dontMapO4B){
-    $baseURL = ("https://"+$O365CustomerName+".sharepoint.com") 
-}else{
-    $baseURL = ("https://$($O365CustomerName)-my.sharepoint.com/_layouts/15/MySite.aspx?MySiteRedirect=AllDocuments") 
-}
 
 #update progress bar
 if($showProgressBar) {
     $progressbar1.Value = 15
     $form1.Refresh()
-}
-
-if($configurationID -ne "00000000-0000-0000-0000-000000000000"){
-    $sharepointMappings = @()
-    [Array]$returnedSharepointMappings = @($configuratorSettings.mappings | where{$_.Type -eq "Sharepoint" -and $_.Url -and $_.Driveletter -and $_.Label})
-    if($returnedSharepointMappings.Count -eq 0){
-        log -text "No sharepoint mappings detected from web service for configurationID $configurationID"
-    }else{
-        foreach($spOMapping in $returnedSharepointMappings){
-            log -text "Loaded $($returnedSharepointMappings.Count) potential mappings from web service with id $configurationID"
-            if($lookupUserGroups -and $groups){
-                if($spOMapping.SecurityGroup.Length -gt 2 -and $spOMapping.SecurityGroup -ne "N/A" -and $spOMapping.SecurityGroup -ne "If you wish to restrict this mapping to a specific security group, type the EXACT group name here"){
-                    $group = $groups -contains $spOMapping.SecurityGroup  
-                    if($group){
-                        $sharepointMappings+="$($spOMapping.Url),$($spOMapping.Label),$($spOMapping.Driveletter)"
-                        log -text "Verified $($spOMapping.Driveletter) from web service with id $configurationID because of group membership: $($spOMapping.SecurityGroup)"
-                    }                    
-                }
-            }else{
-                $sharepointMappings+="$($spOMapping.Url),$($spOMapping.Label),$($spOMapping.Driveletter)"
-                log -text "Verified $($spOMapping.Driveletter) from web service with id $configurationID"
-            }
-        }
-    }
 }
 
 #add any desired Sharepoint Mappings
