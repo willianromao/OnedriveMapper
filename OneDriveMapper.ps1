@@ -31,9 +31,10 @@ $showConsoleOutput     = $True                     #Set this to $False to hide c
 $showElevatedConsole   = $True
 
 #if you wish to add more, copy the example as you see above, if you don't wish to map any sharepoint sites, simply leave as is
-$mappings =  @(
-    @{"mappingTarget" = "Onedrive";"driveLabel"="Onedrive for Business";"targetLocationType"="driveletter";"targetLocationName"="X:"},
-    @{"mappingTarget" = "Sharepoint";"driveLabel"="Sharepoint Site A";"targetLocationType"="driveletter";"targetLocationName"="Z:"} #note that the last entry does NOT end with a comma
+$desiredMappings =  @(
+    @{"mappingTargetType" = "Onedrive";"displayName"="Onedrive for Business";"targetLocationType"="driveletter";"targetLocationPath"="X:";"sourceLocationPath"="autodetect";"mapOnlyForSpecificGroup"="jos"},
+    @{"mappingTargetType" = "Onedrive";"displayName"="Onedrive for Business";"targetLocationType"="networklocation";"targetLocationPath"="$env:APPDATA\Microsoft\Windows\Network Shortcuts";"sourceLocationPath"="autodetect";"mapOnlyForSpecificGroup"=""},
+    @{"mappingTargetType" = "Sharepoint";"displayName"="Sharepoint Site A";"targetLocationType"="driveletter";"targetLocationPath"="Z:";"sourceLocationPath"="https://ogd.sharepoint.com/sites/OGDWerkplek/Gedeelde%20%20documenten/Forms/AllItems.aspx";"mapOnlyForSpecificGroup"=""} #note that the last entry does NOT end with a comma
 )
 $redirectFolders       = $false #Set to TRUE and configure below hashtable to redirect folders
 $listOfFoldersToRedirect = @(#One line for each folder you want to redirect, only works if redirectFolders=$True. For knownFolderInternalName choose from Get-KnownFolderPath function, for knownFolderInternalIdentifier choose from Set-KnownFolderPath function
@@ -192,10 +193,10 @@ ResetLog
 log -text "-----$(Get-Date) OneDriveMapper v$version - $($env:USERNAME) on $($env:COMPUTERNAME) starting-----" 
 
 ###THIS ONLY HAS TO BE CONFIGURED IF YOU WANT TO MAP USER SECURITY GROUPS TO SHAREPOINT SITES
-if($lookupUserGroups){
+if($desiredMappings.mapOnlyForSpecificGroup | where{$_.Length -gt 0}){
     try{
         $groups = ([ADSISEARCHER]"samaccountname=$($env:USERNAME)").Findone().Properties.memberof -replace '^CN=([^,]+).+$','$1'
-        log -text "cached user group membership because lookupUserGroups was set to True"
+        log -text "cached user group membership because you have configured mappings where the mapOnlyForSpecificGroup option was configured"
         #####################FOR EACH GROUP YOU WISH TO MAP TO A SHAREPOINT LIBRARY, UNCOMMENT AND REPEAT BELOW EXAMPLE, NOTE: THIS MAY FAIL IF THERE ARE REGEX CHARACTERS IN THE NAME 
         #    $group = $groups -contains "DLG_West District School A - Sharepoint" 
         #    if($group){ 
@@ -204,7 +205,8 @@ if($lookupUserGroups){
         #       log -text "adding a sharepoint mapping because the user is a member of $group" 
         #    }   
     }catch{
-        log -text "failed to cache user group membership because of: $($Error[0])" -fout
+        log -text "failed to cache user group membership, ignoring these mappings because of: $($Error[0])" -fout
+        $desiredMappings = $desiredMappings | where{$_.mapOnlyForSpecificGroup.Length -eq 0}
     }
 }
 
@@ -223,7 +225,7 @@ function Add-NetworkLocation
     [CmdLetBinding()]
     param
     (
-        [Parameter(Mandatory=$true)][string]$networkLocationPath,
+        [string]$networkLocationPath="$env:APPDATA\Microsoft\Windows\Network Shortcuts,"
         [Parameter(Mandatory=$true)][string]$networkLocationName ,
         [Parameter(Mandatory=$true)][string]$networkLocationTarget
     )
@@ -1481,48 +1483,6 @@ function Get-ProcessWithOwner {
  
 } 
 #endregion
-
-function addMapping(){
-    Param(
-        [String]$driveLetter,
-        [String]$url,
-        [String]$label
-    )
-    $mapping = "" | Select-Object driveLetter, URL, Label, alreadyMapped
-    $mapping.driveLetter = $driveLetter
-    $mapping.url = $url
-    $mapping.label = $label
-    $mapping.alreadyMapped = $False
-    log -text "Adding to mapping list: $driveLetter ($url)"
-    return $mapping
-}
-
-#this function checks if a given drivemapper is properly mapped to the given location, returns true if it is, otherwise false
-function checkIfLetterIsMapped(){
-    Param(
-        [String]$driveLetter,
-        [String]$url
-    )
-    if([System.IO.Directory]::Exists($driveLetter)){ 
-        #Ignore DavWWWRoot, as this does not consistently appear in the actual URL
-        try{
-            [string]$mapped_URL = @(Get-WMIObject -query "Select * from Win32_NetworkConnection Where LocalName = '$driveLetter'")[0].RemoteName.Replace("DavWWWRoot\","").Replace("@SSL","")
-        }catch{
-            log -text "problem detecting network path for $driveLetter, $($Error[0])" -fout
-        }
-        [String]$url = $url.Replace("DavWWWRoot\","").Replace("@SSL","")
-        if($mapped_URL.StartsWith($url)){
-            log -text "the mapped url for $driveLetter ($mapped_URL) matches the expected URL of $url, no need to remap"
-            return $True
-        }else{
-            log -text "the mapped url for $driveLetter ($mapped_URL) does not match the expected partial URL of $url"
-            return $False
-        } 
-    }else{
-        log -text "$driveLetter is not yet mapped"
-        return $False
-    }
-}
 
 function waitForIE{
     $waited = 0
@@ -2966,11 +2926,8 @@ if($authMethod -ne "native"){
 
 #endregion
 
-#translate to URLs 
-$mapURLpersonal = ("\\"+$O365CustomerName+"$($privateSuffix).sharepoint.com@SSL\DavWWWRoot\personal\") 
-$desiredMappings = @() #array with mappings to be made
+$intendedMappings = @() #array with mappings to be made
 $baseURL = ("https://$($O365CustomerName)-my.sharepoint.com/_layouts/15/MySite.aspx?MySiteRedirect=AllDocuments") 
-
 
 #update progress bar
 if($showProgressBar) {
@@ -2978,31 +2935,40 @@ if($showProgressBar) {
     $form1.Refresh()
 }
 
-#add any desired Sharepoint Mappings
-$sharepointMappings | % {
-    $data = $_.Split(",")
-    if($data[0] -and $data[1] -and $data[2]){
-        if($WebAssemblyloaded){
-            $add = [System.Web.HttpUtility]::UrlDecode($data[0])
-        }else{
-            $add = $data[0]
-        }
-        $add = $add.Replace("https://","\\") 
-        $add = $add.Replace("/_layouts/15/start.aspx#","")
-        $add = $add.Replace("sharepoint.com/","sharepoint.com@SSL\DavWWWRoot\") 
-        $add = $add.Replace("/","\") 
-        $desiredMappings += addMapping -driveLetter $data[2] -url $add -label $data[1]
-    }
-}
+<#
+$desiredMappings =  @(
+    @{"mappingTargetType" = "Onedrive";"displayName"="Onedrive for Business";"targetLocationType"="driveletter";"targetLocationPath"="X:";"sourceLocationPath"="autodetect";"mapOnlyForSpecificGroup"="jos"},
+    @{"mappingTargetType" = "Onedrive";"displayName"="Onedrive for Business";"targetLocationType"="networklocation";"targetLocationPath"="$env:APPDATA\Microsoft\Windows\Network Shortcuts";"sourceLocationPath"="autodetect";"mapOnlyForSpecificGroup"=""},
+    @{"mappingTargetType" = "Sharepoint";"displayName"="Sharepoint Site A";"targetLocationType"="driveletter";"targetLocationPath"="Z:";"sourceLocationPath"="https://ogd.sharepoint.com/sites/OGDWerkplek/Gedeelde%20%20documenten/Forms/AllItems.aspx";"mapOnlyForSpecificGroup"=""} #note that the last entry does NOT end with a comma
+)
+#>
 
-$continue = $False
-$countMapping = 0
-#check if any of the mappings we should make is already mapped and update the corresponding property
-$desiredMappings | % {
-    if((checkIfLetterIsMapped -driveLetter $_.driveletter -url $_.url)){
-        $desiredMappings[$countMapping].alreadyMapped = $True
+$count = 0
+for($count=0;$count -lt $desiredMappings.Count;$count++){
+    #replace funky sharepoint URL stuff and turn into webdav path
+    if($desiredMappings[$count].sourceLocationPath -ne "autodetect"){
+        if($WebAssemblyloaded){
+            $desiredMappings[$count].sourceLocationPath = [System.Web.HttpUtility]::UrlDecode($desiredMappings[$count].sourceLocationPath)
+        }
+        $desiredMappings[$count].sourceLocationPath = $desiredMappings[$count].sourceLocationPath.Replace("https://","\\").Replace("/_layouts/15/start.aspx#","").Replace("sharepoint.com/","sharepoint.com@SSL\DavWWWRoot\").Replace("/Forms/AllItems.aspx","")
+        $desiredMappings[$count].sourceLocationPath = $desiredMappings[$count].sourceLocationPath.Replace("/","\")  
+    }else{
+        $desiredMappings[$count].sourceLocationPath = "\\$O365CustomerName-my.sharepoint.com@SSL\DavWWWRoot\personal\"
     }
-    $countMapping++
+    #check if driveletters are already mapped
+    if($desiredMappings[$count].targetLocationType -eq "driveletter" -and [System.IO.Directory]::Exists($($desiredMappings[$count].targetLocationPath))){
+        [string]$mapped_URL = @(Get-WMIObject -query "Select * from Win32_NetworkConnection Where LocalName = '$($desiredMappings[$count].targetLocationPath)'")[0].RemoteName.Replace("DavWWWRoot\","").Replace("@SSL","")  
+        if($mapped_URL.StartsWith($desiredMappings[$count].sourceLocationPath)){
+            log -text "the mapped url for $($desiredMappings[$count].targetLocationPath) ($mapped_URL) matches the expected URL of $($desiredMappings[$count].sourceLocationPath), no need to remap"
+            $desiredMappings[$count].alreadyMapped = $True
+        }else{
+            $desiredMappings[$count].alreadyMapped = $False
+            log -text "the mapped url for $($desiredMappings[$count].targetLocationPath) ($mapped_URL) does not match the expected partial URL of $($desiredMappings[$count].sourceLocationPath)"
+        }                   
+    }else{
+        $desiredMappings[$count].alreadyMapped = $False        
+    }
+    $count++
 }
  
 if(@($desiredMappings | where-object{$_.alreadyMapped -eq $False}).Count -le 0){
