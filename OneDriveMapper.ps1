@@ -35,7 +35,7 @@ sourceLocationPath = autodetect or the full URL to the sharepoint / groups site.
 mapOnlyForSpecificGroup = this only works for DOMAIN JOINED devices that can reach a domain controller and means that the mapping will only be made if the user is a member of the group you specify here
 #>
 
-#DEFAULT SETTINGS:
+#DEFAULT SETTINGS: (onedrive only, to the X: drive)
 $desiredMappings =  @(
     @{"displayName"="Onedrive for Business";"targetLocationType"="driveletter";"targetLocationPath"="X:";"sourceLocationPath"="autodetect";"mapOnlyForSpecificGroup"=""}
 )
@@ -56,6 +56,7 @@ $listOfFoldersToRedirect = @(#One line for each folder you want to redirect, onl
 
 ###OPTIONAL CONFIGURATION
 $clearCookies          = $False                    #always clear all Internet Explorer cookies before running (prevents certain occasional issues with IE)
+$authenticateToProxy   = $False                    #use system proxy settings and authenticate automatically
 $libraryName           = "Documents"               #leave this default, unless you wish to map a non-default library you've created 
 $autoKillIE            = $True                     #Kill any running Internet Explorer processes prior to running the script to prevent security errors when mapping 
 $abortIfNoAdfs         = $False                    #If set to True, will stop the script if no ADFS server has been detected during login
@@ -78,7 +79,6 @@ $versionCheck          = $False                     #will check if running the l
 $autoDetectProxy       = $False                    #if set to $False, unchecks the 'Automatically detect proxy settings' setting in IE; this greatly enhanced WebDav performance, set to true to not modify this IE setting (leave as is)
 $forceUserName         = ''                        #if anything is entered here, userLookupMode is ignored
 $forcePassword         = ''                        #if anything is entered here, the user won't be prompted for a password. This function is not recommended, as your password could be stolen from this file 
-$restartExplorer       = $False                    #Set to $True if you're having any issues with drive visibility
 $autoProtectedMode     = $True                     #Automatically temporarily disable IE Protected Mode if it is enabled. ProtectedMode has to be disabled for the script to function 
 $addShellLink          = $False                    #Adds a link to Onedrive to the Shell under Favorites (Windows 7, 8 / 2008R2 and 2012R2 only) If you use a remote path, google EnableShellShortcutIconRemotePath
 $logfile               = ($env:APPDATA + "\OneDriveMapper_$version.log")    #Logfile to log to 
@@ -524,6 +524,11 @@ function JosL-WebRequest{
                 $customHeaders.Keys | % { 
                     $request.Headers[$_] = $customHeaders.Item($_)
                 }
+            }
+            if($authenticateToProxy){
+                $proxy = [System.Net.WebRequest]::GetSystemWebProxy()
+                $proxy.Credentials = [System.Net.CredentialCache]::DefaultCredentials
+                $request.proxy = $proxy
             }
             $request.UserAgent = "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.0; WOW64; Trident/7.0; .NET4.0C; .NET4.0E); OneDriveMapper/$version"
             $request.ContentType = $contentType
@@ -1009,27 +1014,6 @@ function labelDrive{
     } 
 } 
 
-function restart_explorer{
-    log -text "Restarting Explorer.exe to make the drive(s) visible" 
-    #kill all running explorer instances of this user 
-    $explorerStatus = Get-ProcessWithOwner explorer 
-    if($explorerStatus -eq 0){ 
-        log -text "no instances of Explorer running yet, at least one should be running" -warning
-    }elseif($explorerStatus -eq -1){ 
-        log -text "ERROR Checking status of Explorer.exe: unable to query WMI" -fout
-    }else{ 
-        log -text "Detected running Explorer processes, attempting to shut them down..." 
-        foreach($Process in $explorerStatus){ 
-            try{ 
-                Stop-Process $Process.handle | Out-Null 
-                log -text "Stopped process with handle $($Process.handle)" 
-            }catch{ 
-                log -text "Failed to kill process with handle $($Process.handle)" -fout
-            } 
-        } 
-    } 
-} 
-
 function fixElevationVisibility{
     #check if a task already exists for this script
     if($showElevatedConsole){
@@ -1143,11 +1127,6 @@ function abort_OM{
     }
     handleAzureADConnectSSO
     log -text "OnedriveMapper has finished running"
-    if($restartExplorer){
-        restart_explorer
-    }else{
-        log -text "restartExplorer is set to False, if you're redirecting My Documents, it won't show until next logon" -warning
-    }
     if($urlOpenAfter.Length -gt 10){Start-Process iexplore.exe $urlOpenAfter}
     if($displayErrors){
         if($errorsForUser){ 
