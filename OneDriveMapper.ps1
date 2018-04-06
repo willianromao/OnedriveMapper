@@ -3313,8 +3313,7 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
             $script:progressbar1.Value += 5
             $script:form1.Refresh()
         }
-        log -text "SpO cookie generated, attempting to map drive"
-        $mapresult = MapDrive $desiredMappings[$count]
+        log -text "SpO cookie generated"
     }
 }
 
@@ -3338,12 +3337,6 @@ foreach($mapping in $desiredMappings){
         }
     }
 } 
-
-#update progress bar
-if($showProgressBar) {
-    $script:progressbar1.Value = 50
-    $script:form1.Refresh()
-}
 
 #update progress bar
 if($showProgressBar) {
