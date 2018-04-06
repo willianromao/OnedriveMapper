@@ -55,7 +55,7 @@ $listOfFoldersToRedirect = @(#One line for each folder you want to redirect, onl
 )
 
 ###OPTIONAL CONFIGURATION
-$clearCookies          = $False                    #always clear all Internet Explorer cookies before running (prevents certain occasional issues with IE)
+$autoResetIE           = $False                    #always clear all Internet Explorer cookies before running (prevents certain occasional issues with IE)
 $authenticateToProxy   = $False                    #use system proxy settings and authenticate automatically
 $libraryName           = "Documents"               #leave this default, unless you wish to map a non-default library you've created 
 $autoKillIE            = $True                     #Kill any running Internet Explorer processes prior to running the script to prevent security errors when mapping 
@@ -1342,7 +1342,7 @@ function setCookies{
         }
     }
     if(!$failed){
-        clearMSCookies
+        #clearMSCookies
     }
 
     [DateTime]$dateTime = Get-Date
@@ -2969,8 +2969,8 @@ handleAzureADConnectSSO -initial
 
 log -text "Base URL: $($baseURL) `n" 
 
-if($clearCookies){
-    RunDll32.exe InetCpl.cpl, ClearMyTracksByProcess 2
+if($autoResetIE){
+    & RunDll32.exe InetCpl.cpl,ResetIEtoDefaults
 }
 
 #Start IE and stop it once to make sure IE sets default registry keys 
@@ -3159,6 +3159,7 @@ if($deleteUnmanagedDrives){
     }
 }
 
+#generate cookies
 for($count=0;$count -lt $desiredMappings.Count;$count++){
     if($desiredMappings[$count].alreadyMapped){continue}
     if($desiredMappings[$count].sourceLocationPath -eq "autodetect"){
@@ -3190,8 +3191,7 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
             }
             $desiredMappings[$count].webDavPath = $mapURL 
             log -text "Detected user: $($userURL)"
-            log -text "Onedrive cookie generated, mapping drive..."
-            $mapresult = MapDrive $desiredMappings[$count]
+            log -text "Onedrive cookie generated"
         }else{
             log -text "Retrieving Onedrive for Business cookie step 1..." 
             #trigger forced authentication to SpO O4B and follow the redirect
@@ -3254,21 +3254,8 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
                 $res = JosL-WebRequest -url $baseURL -method GET
                 $timeWaited += 10
             }
-            try{
-                setCookies
-            }catch{
-                log -text "Failed to set cookies, error received: $($Error[0])" -fout
-            }
             $desiredMappings[$count].webDavPath = $mapURL 
-            log -text "Onedrive cookie generated, mapping drive..."
-            $mapresult = MapDrive $desiredMappings[$count]
-        } 
-        if($addShellLink -and $windowsVersion -eq 6 -and $desiredMappings[$count].targetLocationType -eq "driveletter" -and [System.IO.Directory]::Exists($desiredMappings[$count].targetLocationPath)){
-            try{
-                $res = createFavoritesShortcutToO4B -targetLocation $desiredMappings[$count].targetLocationPath
-            }catch{
-                log -text "Failed to create a shortcut to the mapped drive for Onedrive for Business because of: $($Error[0])" -fout
-            }
+            log -text "Onedrive cookie generated"
         }               
     }else{
         log -text "Initiating Sharepoint session with: $($desiredMappings[$count].sourceLocationPath)"
@@ -3320,11 +3307,6 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
             }catch{
                 log -text "Problem reported during step 2: $($Error[0])" -fout
             }
-            try{
-                setCookies
-            }catch{
-                log -text "Failed to set cookies, error received: $($Error[0])" -fout
-            }
         }
         #update progress bar
         if($showProgressBar) {
@@ -3336,6 +3318,26 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
     }
 }
 
+try{
+    setCookies
+}catch{
+    log -text "Failed to set cookies, error received: $($Error[0])" -fout
+}
+
+#map the drives
+foreach($mapping in $desiredMappings){
+    if($mapping.alreadyMapped){continue}
+    $mapresult = MapDrive $mapping
+    if($mapping.sourceLocationPath -eq "autodetect"){   
+        if($addShellLink -and $windowsVersion -eq 6 -and $mapping.targetLocationType -eq "driveletter" -and [System.IO.Directory]::Exists($mapping.targetLocationPath)){
+            try{
+                $res = createFavoritesShortcutToO4B -targetLocation $mapping.targetLocationPath
+            }catch{
+                log -text "Failed to create a shortcut to the mapped drive for Onedrive for Business because of: $($Error[0])" -fout
+            }
+        }
+    }
+} 
 
 #update progress bar
 if($showProgressBar) {
