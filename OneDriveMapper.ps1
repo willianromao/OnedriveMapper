@@ -7,6 +7,11 @@
 #Purpose:           This script maps Onedrive for Business and/or maps a configurable number of Sharepoint Libraries
 #Enterprise users:  This script is not recommended for Enterprise use as no dedicated support is available. Check www.lieben.nu for enterprise options.
 
+
+#Todo:
+#1 remove undesired network locations and do not error out when it already exists and matches the desired location
+#2 MFA revamp
+
 param(
     [Switch]$asTask,
     [Switch]$fallbackMode,
@@ -1282,109 +1287,31 @@ function retrieveLogin{
     return [String]$login.ToLower()
 } 
 
-function clearMSCookies{
-    $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
-    $failed = $False
-    try{
-        $folder = (get-itemproperty $regPath -Name Cookies -ErrorAction Stop).Cookies
-    }catch{
-        $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
-        $failed = $True
-    }
-    if($failed){
-        try{
-            $folder = (get-itemproperty $regPath -Name Cookies).Cookies
-            $failed = $False
-        }catch{
-            log -text "Unable to find out where your cookies are stored! This means we can't double-check if they were really created when we attempt to create them and won't be able to delete existing cookies. $($Error[0])"
-            Throw
-        }
-    }
-    if(!$failed){
-        $cookies = get-childitem $folder -include * -recurse -force | where {$_.Extension -eq ".cookie" -or $_.Extension -eq ".txt"}
-        foreach($cookie in $cookies){
-            $content = Get-Content -Path $cookie.FullName
-            if($content | Select-String -Pattern "sharepoint.com"){
-                Remove-Item $cookie -Force -ErrorAction SilentlyContinue
-            }
-            if($content | Select-String -Pattern "office.com"){
-                Remove-Item $cookie -Force -ErrorAction SilentlyContinue
-            }
-            if($content | Select-String -Pattern "microsoft.com"){
-                Remove-Item $cookie -Force -ErrorAction SilentlyContinue
-            }
-            if($content | Select-String -Pattern "microsoftonline.com"){
-                Remove-Item $cookie -Force -ErrorAction SilentlyContinue
-            }
-            if($content | Select-String -Pattern "microsoftazuread-sso.com"){
-                Remove-Item $cookie -Force -ErrorAction SilentlyContinue
-            }
-        }
-    }    
-}
+
 
 #cookie setter function, only works for rtFA and FedAuth cookies
 function setCookies{
-    $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
-    $failed = $False
-    try{
-        $folder = (get-itemproperty $regPath -Name Cookies -ErrorAction Stop).Cookies
-    }catch{
-        $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
-        $failed = $True
-    }
-    if($failed){
-        try{
-            $folder = (get-itemproperty $regPath -Name Cookies).Cookies
-            $failed = $False
-        }catch{
-            log -text "Unable to find out where your cookies are stored! This means we can't double-check if they were really created when we attempt to create them and won't be able to delete existing cookies. $($Error[0])"
-        }
-    }
-    if(!$failed){
-        #clearMSCookies
-    }
-
     [DateTime]$dateTime = Get-Date
     $dateTime = $dateTime.AddDays(5)
     $str = $dateTime.ToString("R")
     $relevantCookies += $script:cookiejar.GetCookies("https://$O365CustomerName-my.sharepoint.com")
     $relevantCookies += $script:cookiejar.GetCookies("https://$O365CustomerName.sharepoint.com")
-    $findMe = @()
     foreach($cookie in $relevantCookies){
         [String]$cookieValue = [String]$cookie.Value.Trim()
         [String]$cookieDomain = [String]$cookie.Domain.Trim()
         try{
             if($cookie.Name -eq "rtFa"){
-                $findMe+=$cookieDomain
                 $cookieDomain = "https://$($cookieDomain)"
                 log -text "Setting rtFA cookie for $cookieDomain...."
                 $res = [Cookies.setter]::SetWinINETCookieString($cookieDomain,"rtFa","$cookieValue;Expires=$str")
             }
             if($cookie.Name -eq "FedAuth"){
-                $findMe+=$cookieDomain
                 $cookieDomain = "https://$($cookieDomain)"
                 log -text "Setting FedAuth cookie for $cookieDomain...."
                 $res = [Cookies.setter]::SetWinINETCookieString($cookieDomain,"FedAuth","$cookieValue;Expires=$($str)")
             }
         }catch{
             log -text "Failed to set a cookie: $($Error[0])" -fout
-        }
-    }
-
-    #check if it was properly created
-    if(!$failed){
-        $cookies = get-childitem $folder -include * -recurse -force | where {$_.Extension -eq ".cookie" -or $_.Extension -eq ".txt"}
-        $found = 0
-        foreach($cookie in $cookies){
-            foreach($find in $findMe){
-                if(Get-Content -Path $cookie.FullName | Select-String -Pattern $find){
-                    $found++
-                }
-            }
-        }
-        if($found -lt $findMe.Count){
-            Throw "Found $found cookies out of the expected $($findMe.Count) cookies in $folder"
         }
     }
 }
@@ -3060,14 +2987,6 @@ if($authMethod -ne "native"){
         waitForIE
         Start-Sleep -s 1
         waitForIE
-        if($userLookupMode -ne 3){
-            try{
-                clearMSCookies
-                log -text "Microsoft cookies cleared"
-            }catch{
-                log -text "Failed to clear Microsoft cookies: $($Error[0])" -fout
-            }
-        }
         $script:ie.navigate($o365loginURL) 
         waitForIE
         Start-Sleep -s 1
