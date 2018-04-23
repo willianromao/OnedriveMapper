@@ -11,6 +11,7 @@
 #Todo:
 #1 remove undesired network locations and do not error out when it already exists and matches the desired location
 #2 MFA revamp
+#3 try to use InternetGetCookie function from wininet.dll
 
 param(
     [Switch]$asTask,
