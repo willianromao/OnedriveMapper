@@ -415,12 +415,16 @@ Function Get-KnownFolderPath {
             [Parameter(Mandatory = $true)]
             [ValidateSet('AdminTools','ApplicationData','CDBurning','CommonAdminTools','CommonApplicationData','CommonDesktopDirectory','CommonDocuments','CommonMusic',`
             'CommonOemLinks','CommonPictures','CommonProgramFiles','CommonProgramFilesX86','CommonPrograms','CommonStartMenu','CommonStartup','CommonTemplates',`
-            'CommonVideos','Cookies','Desktop','DesktopDirectory','Favorites','Fonts','History','InternetCache','LocalApplicationData','LocalizedResources','MyComputer',`
+            'CommonVideos','Cookies','Downloads','Desktop','DesktopDirectory','Favorites','Fonts','History','InternetCache','LocalApplicationData','LocalizedResources','MyComputer',`
             'MyDocuments','MyMusic','MyPictures','MyVideos','NetworkShortcuts','Personal','PrinterShortcuts','ProgramFiles','ProgramFilesX86','Programs','Recent',`
             'Resources','SendTo','StartMenu','Startup','System','SystemX86','Templates','UserProfile','Windows')]
             [string]$KnownFolder
     )
-    Return [Environment]::GetFolderPath($KnownFolder)
+    if($KnownFolder -eq "Downloads"){
+        Return $Null
+    }else{
+        Return [Environment]::GetFolderPath($KnownFolder)
+    }
 }
 
 Function Redirect-Folder {
@@ -434,7 +438,7 @@ Function Redirect-Folder {
     $Folder = Get-KnownFolderPath -KnownFolder $GetFolder
     If ($Folder -ne $Target) {
         Set-KnownFolderPath -KnownFolder $SetFolder -Path $Target
-        if($copyExistingFiles){
+        if($copyExistingFiles -and $Folder){
             Get-ChildItem -Path $Folder -ErrorAction Continue | Copy-Item -Destination $Target -Recurse -Container -Force -Confirm:$False -ErrorAction Continue
         }
         Attrib +h $Folder
