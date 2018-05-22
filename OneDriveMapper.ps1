@@ -19,7 +19,7 @@ param(
     [Switch]$hideConsole
 )
 
-$version = "3.14"
+$version = "3.15"
 
 ####MANDATORY MANUAL CONFIGURATION
 $authMethod            = "native"                  #Uses IE automation (old method) when set to ie, uses new native method when set to 'native'
@@ -32,6 +32,7 @@ $adfsWaitTime          = 10                        #Amount of seconds to allow f
 $adfsMode              = 1                         #1 = use whatever came out of userLookupMode, 2 = use only the part before the @ in the upn, 3 = use user certificate (local user store) and match Subject to Username
 $showConsoleOutput     = $True                     #Set this to $False to hide console output
 $showElevatedConsole   = $True
+$autoMapFavoriteSites  = $False                    #Set to $True to automatically map any sites/teams/groups the user has favorited (https://yourtenantname.sharepoint.com/_layouts/15/sharepoint.aspx?v=following)
 
 <#if you wish to add more, add more lines to the below (copy the first above itself). Parameter explanation:
 displayName = the label of the driveletter, or name of the shortcut we'll create to the target site/library
@@ -293,6 +294,65 @@ function Add-NetworkLocation
             return $false
         }
         return $true
+    }
+}
+
+function handleMFArequest{
+    Param(
+        $res,
+        $clientId
+    )
+    $mfaMethod = returnEnclosedFormValue -res $res -searchString "`"authMethodId`":`""
+    if($mfaMethod -eq -1){
+        Throw "No MFA method detected"
+    }
+    if($mfaMethod -ne "PhoneAppNotification"){
+        Throw "Unsupported MFA method detected: $mfaMethod"
+    }
+    $canary = returnEnclosedFormValue -res $res -searchString "`",`"canary`":`""
+    $apiCanary = returnEnclosedFormValue -res $res -searchString "ConvergedTFA`",`"apiCanary`":`""
+    $ctx = returnEnclosedFormValue -res $res -searchString "sFTName`":`"flowToken`",`"sCtx`":`""
+    $sFT = returnEnclosedFormValue -res $res -searchString "`",`"sFT`":`""
+    $body = @{"AuthMethodId"="PhoneAppNotification";"Method"="BeginAuth";"ctx"=$ctx;"flowToken"=$sFT}
+    $customHeaders = @{"canary" = $apiCanary;"hpgrequestid" = $res.Headers["x-ms-request-id"];"client-request-id"=$clientId;"hpgid"=1114;"hpgact"=2000}
+    try{
+        $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/SAS/BeginAuth" -Method POST -customHeaders $customHeaders -body ($body | ConvertTo-Json) -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/json"
+        $result = $res.Content | convertfrom-json
+        $sFT = $result.FlowToken
+        $ctx = $result.Ctx
+        if($result.Success -eq $False){
+            Throw
+        }
+        $sessionId = $result.SessionId
+    }catch{
+        Throw "SAS BeginAuth failure, MFA initiation not accepted $($result.Message)"
+    }
+    $body = @{"Method"="EndAuth";"SessionId"=$sessionId;"FlowToken"=$sFT;"Ctx"=$ctx;"AuthMethodId"="PhoneAppNotification";"PollCount"=1}
+    $waitedForMFA = 0
+    while($true){
+        if($waitedForMFA -ge 60){
+            Throw "Waited longer than 60 seconds for MFA request to be validated, aborting"
+        }
+        try{
+            $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/SAS/EndAuth" -Method POST -customHeaders $customHeaders -body ($body | ConvertTo-Json) -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/json"
+            $result = $res.Content | convertfrom-json
+            if($result.Success){
+                break
+            }
+        }catch{
+            Throw "SAS EndAuth failure, MFA initiation not accepted"
+        }
+        Sleep -s 5
+        $waitedForMFA+=5
+    }
+    try{
+        $ctx = [System.Web.HttpUtility]::UrlEncode($ctx)
+        $canary = [System.Web.HttpUtility]::UrlEncode($canary)
+        $sFT = [System.Web.HttpUtility]::UrlEncode($result.FlowToken)
+        $body = "type=22&request=$ctx&mfaAuthMethod=PhoneAppOTP&canary=$canary&login=$userUPN&flowToken=$sFT&hpgrequestid=$($customHeaders["hpgrequestid"])&sacxt=&i2=&i17=&i18=&i19=7406"
+        $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/SAS/ProcessAuth" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri
+    }catch{
+        Throw "SAS ProcessAuth failure"
     }
 }
 
@@ -1612,6 +1672,15 @@ function loginV2(){
             }catch{
                 log -text "error received while posting to login page" -fout
             }
+
+            #MFA check
+            try{
+                handleMFArequest -res $res -clientId $clientId
+                log -text "MFA challenge completed"
+            }catch{
+                log -text "MFA check result: $_"
+            }
+
             if($res.rawResponse.ResponseUri.AbsoluteUri.StartsWith("https://login.microsoftonline.com")){
                 #still at login page
                 if($res.Content.IndexOf("<meta name=`"PageID`" content=`"KmsiInterrupt`"") -ne -1){
@@ -3239,6 +3308,11 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
         }
         log -text "SpO cookie generated"
     }
+}
+
+if($autoMapFavoriteSites){
+    $baseURL = "https://$O365CustomerName.sharepoint.com/_layouts/15/sharepoint.aspx?v=following"
+
 }
 
 try{
