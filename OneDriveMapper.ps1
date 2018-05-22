@@ -329,14 +329,14 @@ function handleMFArequest{
     if($mfaMethod -eq -1){
         Throw "No MFA method detected"
     }
-    if($mfaMethod -ne "PhoneAppNotification"){
+    if($mfaMethod -ne "PhoneAppNotification" -and $mfaMethod -ne "TwoWayVoiceMobile"){
         Throw "Unsupported MFA method detected: $mfaMethod"
     }
     $canary = returnEnclosedFormValue -res $res -searchString "`",`"canary`":`""
     $apiCanary = returnEnclosedFormValue -res $res -searchString "ConvergedTFA`",`"apiCanary`":`""
     $ctx = returnEnclosedFormValue -res $res -searchString "sFTName`":`"flowToken`",`"sCtx`":`""
     $sFT = returnEnclosedFormValue -res $res -searchString "`",`"sFT`":`""
-    $body = @{"AuthMethodId"="PhoneAppNotification";"Method"="BeginAuth";"ctx"=$ctx;"flowToken"=$sFT}
+    $body = @{"AuthMethodId"=$mfaMethod;"Method"="BeginAuth";"ctx"=$ctx;"flowToken"=$sFT}
     $customHeaders = @{"canary" = $apiCanary;"hpgrequestid" = $res.Headers["x-ms-request-id"];"client-request-id"=$clientId;"hpgid"=1114;"hpgact"=2000}
     try{
         $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/SAS/BeginAuth" -Method POST -customHeaders $customHeaders -body ($body | ConvertTo-Json) -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/json"
@@ -350,7 +350,7 @@ function handleMFArequest{
     }catch{
         Throw "SAS BeginAuth failure, MFA initiation not accepted $($result.Message)"
     }
-    $body = @{"Method"="EndAuth";"SessionId"=$sessionId;"FlowToken"=$sFT;"Ctx"=$ctx;"AuthMethodId"="PhoneAppNotification";"PollCount"=1}
+    $body = @{"Method"="EndAuth";"SessionId"=$sessionId;"FlowToken"=$sFT;"Ctx"=$ctx;"AuthMethodId"=$mfaMethod;"PollCount"=1}
     $waitedForMFA = 0
     while($true){
         if($waitedForMFA -ge 60){
@@ -368,11 +368,20 @@ function handleMFArequest{
         Sleep -s 5
         $waitedForMFA+=5
     }
+
     try{
         $ctx = [System.Web.HttpUtility]::UrlEncode($ctx)
         $canary = [System.Web.HttpUtility]::UrlEncode($canary)
         $sFT = [System.Web.HttpUtility]::UrlEncode($result.FlowToken)
-        $body = "type=22&request=$ctx&mfaAuthMethod=PhoneAppOTP&canary=$canary&login=$userUPN&flowToken=$sFT&hpgrequestid=$($customHeaders["hpgrequestid"])&sacxt=&i2=&i17=&i18=&i19=7406"
+        if($mfaMethod -eq "PhoneAppNotification"){
+            $mfaAuthMethod = "PhoneAppOTP"
+            $type=22
+        }
+        if($mfaMethod -eq "TwoWayVoiceMobile"){
+            $mfaAuthMethod = "TwoWayVoiceMobile"
+            $type=1
+        }
+        $body = "type=$type&request=$ctx&mfaAuthMethod=$mfaAuthMethod&canary=$canary&login=$userUPN&flowToken=$sFT&hpgrequestid=$($customHeaders["hpgrequestid"])&sacxt=&i2=&i17=&i18=&i19=7406"
         $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/SAS/ProcessAuth" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri
         return $res
     }catch{
