@@ -10,7 +10,7 @@
 
 #Todo:
 #1 remove undesired network locations and do not error out when it already exists and matches the desired location
-#2 MFA revamp
+#2 MFA revamp (done, Native mode only!)
 #3 try to use InternetGetCookie function from wininet.dll
 
 param(
@@ -3265,9 +3265,6 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
             #trigger forced authentication to SpO O4B and follow the redirect
             try{
                 $res = JosL-WebRequest -url $baseURL -method GET
-                $nextURL = [System.Web.HttpUtility]::HtmlDecode((returnEnclosedFormValue -res $res -searchString "form name=`"fmHF`" id=`"fmHF`" action=`"" -decode))
-                $value = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"t`" id=`"t`" value=`""
-                $body = "t=$value"
             }catch{
                 log -text "Failed to retrieve cookie for Onedrive for Business: $($Error[0])" -fout
             }
@@ -3336,9 +3333,6 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
             #trigger forced authentication to SpO and follow the redirect if needed
             try{
                 $res = JosL-WebRequest -url $spURL -method GET
-                $nextURL = [System.Web.HttpUtility]::HtmlDecode((returnEnclosedFormValue -res $res -searchString "form name=`"fmHF`" id=`"fmHF`" action=`"" -decode))               
-                $value = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"t`" id=`"t`" value=`""
-                $body = "t=$value"
             }catch{
                 log -text "Failed to retrieve cookie for SpO: $($Error[0])" -fout
             }
