@@ -32,7 +32,6 @@ $adfsWaitTime          = 10                        #Amount of seconds to allow f
 $adfsMode              = 1                         #1 = use whatever came out of userLookupMode, 2 = use only the part before the @ in the upn, 3 = use user certificate (local user store) and match Subject to Username
 $showConsoleOutput     = $True                     #Set this to $False to hide console output
 $showElevatedConsole   = $True
-$autoMapFavoriteSites  = $False                    #Set to $True to automatically map any sites/teams/groups the user has favorited (https://yourtenantname.sharepoint.com/_layouts/15/sharepoint.aspx?v=following)
 
 <#if you wish to add more, add more lines to the below (copy the first above itself). Parameter explanation:
 displayName = the label of the driveletter, or name of the shortcut we'll create to the target site/library
@@ -62,6 +61,8 @@ $listOfFoldersToRedirect = @(#One line for each folder you want to redirect, onl
 )
 
 ###OPTIONAL CONFIGURATION
+$autoMapFavoriteSites  = $False                    #Set to $True to automatically map any sites/teams/groups the user has favorited (https://yourtenantname.sharepoint.com/_layouts/15/sharepoint.aspx?v=following)
+$favoriteSitesDLName   = "Gedeelde  Documenten"    #Default document library name in Teams/Groups/Sites to map in conjunction with $autoMapFavoriteSites, note the double spaces! Use Shared  Documents for english language tenants
 $autoResetIE           = $False                    #always clear all Internet Explorer cookies before running (prevents certain occasional issues with IE)
 $authenticateToProxy   = $False                    #use system proxy settings and authenticate automatically
 $libraryName           = "Documents"               #leave this default, unless you wish to map a non-default library you've created 
@@ -297,6 +298,28 @@ function Add-NetworkLocation
     }
 }
 
+function handleSpoReAuth{
+    Param(
+        $res
+    )
+    try{
+        if((returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`"" -decode) -ne -1){
+            $nextURL = returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`"" -decode
+            $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
+            $id_token = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"id_token`" value=`""
+            $session_state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"session_state`" value=`""
+            $body = "code=$code&id_token=$id_token&session_state=$session_state"                    
+        }
+        if($nextURL.Length -gt 10){
+            log -text "Retrieving Sharepoint cookie step 2 at $nextURL"
+            $res = JosL-WebRequest -url $nextURL -Method POST -body $body
+        }
+        return $res
+    }catch{
+        log -text "Problem reported during sharepoint reauth: $($Error[0])" -fout
+    }
+}
+
 function handleMFArequest{
     Param(
         $res,
@@ -351,6 +374,7 @@ function handleMFArequest{
         $sFT = [System.Web.HttpUtility]::UrlEncode($result.FlowToken)
         $body = "type=22&request=$ctx&mfaAuthMethod=PhoneAppOTP&canary=$canary&login=$userUPN&flowToken=$sFT&hpgrequestid=$($customHeaders["hpgrequestid"])&sacxt=&i2=&i17=&i18=&i19=7406"
         $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/SAS/ProcessAuth" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri
+        return $res
     }catch{
         Throw "SAS ProcessAuth failure"
     }
@@ -1675,7 +1699,7 @@ function loginV2(){
 
             #MFA check
             try{
-                handleMFArequest -res $res -clientId $clientId
+                $res = handleMFArequest -res $res -clientId $clientId
                 log -text "MFA challenge completed"
             }catch{
                 log -text "MFA check result: $_"
@@ -3139,6 +3163,48 @@ if($showProgressBar) {
     $script:form1.Refresh()
 }
 
+if($autoMapFavoriteSites){
+    #get drives already in use
+    $drvlist=(Get-PSDrive -PSProvider filesystem).Name
+    #add already planned mappings to in use list
+    foreach($mapping in $desiredMappings){
+        if($mapping.targetLocationType -eq "driveletter"){
+            if($drvlist -notcontains $($mapping.targetLocationPath.Substring(0,1))){
+                $drvList += $($mapping.targetLocationPath.Substring(0,1))
+            }
+        }
+    }
+    $favoritesURL = "https://$O365CustomerName.sharepoint.com/_layouts/15/sharepoint.aspx?v=following"
+    if($authMethod -eq "native"){
+        try{
+            log -text "Retrieving favorited sites because autoMapFavoriteSites is set to TRUE"
+            $res = JosL-WebRequest -url $favoritesURL -Method GET
+        }catch{
+            log -text "error retrieving favorited sites $($Error[0])" -fout
+        }
+        $res = handleSpoReAuth -res $res
+        $accessToken = returnEnclosedFormValue -res $res -searchString "`"AccessToken`":`""
+        $payLoad = (returnEnclosedFormValue -res $res -searchString "Payload`":`"{" -endString "}").Replace("\","")
+        $payLoad = "{$payLoad}"
+        $customHeaders = @{"SPHome-ApiContext" = $payLoad; "SPHome-MicroserviceFlights" = "SPHomeServiceChangeLog;SPHomeServicePersonalCache;SPHomeServiceOLSAsPrimary";"SPHome-ClientType" = "Web";"Authorization" = "Bearer $accessToken"} 
+        $res = JosL-WebRequest -body "" -url "https://northeurope1-sphomep.svc.ms/api/v1/sites/followed?mostRecentFirst=true&start=0&count=100&fillSiteData=true" -method POST -customHeaders $customHeaders -contentType "application/json;odata=verbose" -accept "application/json;odata=verbose"
+        $results = ($res.Content | convertfrom-json).Items
+        foreach($result in $results){
+            Foreach ($drvletter in "DEFGHIJKLMNOPQRSTUVWXYZ".ToCharArray()) {
+                If ($drvlist -notcontains $drvletter) {
+                    $drvlist += $drvletter
+                    break
+                }
+            }
+            $desiredUrl = $result.Url.Replace("https://","\\").Replace("/_layouts/15/start.aspx#","").Replace("sharepoint.com/","sharepoint.com@SSL\DavWWWRoot\").Replace("/Forms/AllItems.aspx","").Replace("/","\")
+            $desiredMappings +=   @{"displayName"=$($result.Title);"targetLocationType"="driveletter";"targetLocationPath"="$($drvletter):";"sourceLocationPath" = $result.Url; "webDavPath"=$desiredUrl;"mapOnlyForSpecificGroup"="favoritesPlaceholder"}
+            log -text "Adding $($result.Url) as $($result.Title) to mapping list as drive $drvletter"
+        }
+    }else{
+        log -text "autoMapFavoriteSites is not supported in authMethod IE :(" -fout
+    }
+}
+
 #delete mappings to Sharepoint / Onedrive that aren't managed by OnedriveMapper
 if($deleteUnmanagedDrives){
     [Array]$currentMappings = @(Get-WMIObject -query "Select * from Win32_NetworkConnection" | Where-Object {$_})
@@ -3196,23 +3262,7 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
             }catch{
                 log -text "Failed to retrieve cookie for Onedrive for Business: $($Error[0])" -fout
             }
-            try{
-                if((returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`"" -decode) -ne -1){
-                    $nextURL = returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`"" -decode
-                    $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
-                    $id_token = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"id_token`" value=`""
-                    $session_state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"session_state`" value=`""
-                    $body = "code=$code&id_token=$id_token&session_state=$session_state"
-                }
-                if($nextURL.Length -gt 10){
-                    log -text "Retrieving Onedrive for Business cookie step 2 at $nextURL"
-                    $res = JosL-WebRequest -url $nextURL -Method POST -body $body
-                }else{
-                    throw "no next url detected: $nextURL"
-                }
-            }catch{
-                log -text "Problem reported during step 2: $($Error[0])" -fout
-            }
+            $res = handleSpoReAuth -res $res
 
             $stillProvisioning = $True
             $timeWaited = 0
@@ -3283,22 +3333,24 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
             }catch{
                 log -text "Failed to retrieve cookie for SpO: $($Error[0])" -fout
             }
-            try{
-                if((returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`"" -decode) -ne -1){
-                    $nextURL = returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`"" -decode
-                    $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
-                    $id_token = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"id_token`" value=`""
-                    $session_state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"session_state`" value=`""
-                    $body = "code=$code&id_token=$id_token&session_state=$session_state"                    
+            $res = handleSpoReAuth -res $res
+            if($desiredMappings[$count]."mapOnlyForSpecificGroup" -eq "favoritesPlaceholder"){
+                try{
+                    $documentLibrary = @((returnEnclosedFormValue -res $res -searchString "`"navigationInfo`":" -endString ",`"guestsEnabled`"" | convertfrom-json).quickLaunch | where{$_.IsDocLib})[0]
+                    if(!$documentLibrary){
+                        Throw
+                    }else{
+                        $prefix = $spURL.SubString($spURL.IndexOf(".com")+4)
+                        $startLoc = $prefix.Length+1
+                        $endLoc = $documentLibrary.Url.IndexOf("/", $startLoc)
+                        $dlName = $documentLibrary.Url.SubString($startLoc,$endLoc-$startLoc)
+                        $desiredMappings[$count].webDavPath = "$($desiredMappings[$count].webDavPath)\$($dlName)"
+                        log -text "auto detected document library url: $($desiredMappings[$count].webDavPath)"
+                    }
+                }catch{
+                    log -text "Failed to auto detect document library name for $($desiredMappings[$count].displayName), defaulting to $($desiredMappings[$count].webDavPath)\$($favoriteSitesDLName)" -fout
+                    $desiredMappings[$count].webDavPath = "$($desiredMappings[$count].webDavPath)\$($favoriteSitesDLName)"                   
                 }
-                if($nextURL.Length -gt 10){
-                    log -text "Retrieving Sharepoint cookie step 2 at $nextURL"
-                    $res = JosL-WebRequest -url $nextURL -Method POST -body $body
-                }else{
-                    throw "no next url detected: $nextURL"
-                }
-            }catch{
-                log -text "Problem reported during step 2: $($Error[0])" -fout
             }
         }
         #update progress bar
@@ -3308,11 +3360,6 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
         }
         log -text "SpO cookie generated"
     }
-}
-
-if($autoMapFavoriteSites){
-    $baseURL = "https://$O365CustomerName.sharepoint.com/_layouts/15/sharepoint.aspx?v=following"
-
 }
 
 try{
