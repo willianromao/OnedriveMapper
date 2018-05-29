@@ -64,7 +64,10 @@ $listOfFoldersToRedirect = @(#One line for each folder you want to redirect, onl
 ###OPTIONAL CONFIGURATION
 $autoMapFavoriteSites  = $False                    #Set to $True to automatically map any sites/teams/groups the user has favorited (https://yourtenantname.sharepoint.com/_layouts/15/sharepoint.aspx?v=following)
 $autoMapFavoritesMode  = "Normal"                  #Normal = map each detected site to a free driveletter, Onedrive = map to Onedrive subfolder (Links), Converged = single dummy mapping with all links in it
+$autoMapFavoritesDrive = "S"                       #Driveletter when using automapFavoritesMode = "Converged"
+$autoMapFavoritesLabel = "Teams"                   #Label of favorites container, ie; folder name if automapFavoritesMode = "Onedrive", drive label if automapFavoritesMode = "Converged"
 $favoriteSitesDLName   = "Gedeelde  Documenten"    #Normally autodetected, default document library name in Teams/Groups/Sites to map in conjunction with $autoMapFavoriteSites, note the double spaces! Use Shared  Documents for english language tenants
+$restartExplorer       = $False                    #Leave at False unless you're redirecting folders and they don't get redirected properly
 $autoResetIE           = $False                    #always clear all Internet Explorer cookies before running (prevents certain occasional issues with IE)
 $authenticateToProxy   = $False                    #use system proxy settings and authenticate automatically
 $libraryName           = "Documents"               #leave this default, unless you wish to map a non-default onedrive library you've created 
@@ -861,6 +864,26 @@ function startWebDavClient{
     }
 }
 
+function restart_explorer{ 
+    log -text "Restarting Explorer.exe to make the drive(s) visible"  
+    #kill all running explorer instances of this user  
+    $explorerStatus = Get-ProcessWithOwner explorer  
+    if($explorerStatus -eq 0){  
+        log -text "no instances of Explorer running yet, at least one should be running" -warning 
+    }elseif($explorerStatus -eq -1){  
+        log -text "ERROR Checking status of Explorer.exe: unable to query WMI" -fout 
+    }else{  
+        log -text "Detected running Explorer processes, attempting to shut them down..."  
+        foreach($Process in $explorerStatus){  
+            try{  
+                Stop-Process $Process.handle | Out-Null  
+                log -text "Stopped process with handle $($Process.handle)"  
+            }catch{  
+                log -text "Failed to kill process with handle $($Process.handle)" -fout 
+            }  
+        }  
+    }  
+}  
 function queryForAllCreds {
     Param(
         [Parameter(Mandatory=$true)]$titleText,
@@ -1230,6 +1253,11 @@ function abort_OM{
             revertProtectedMode 
         } 
     }
+    if($restartExplorer){ 
+        restart_explorer 
+    }else{ 
+        log -text "restartExplorer is set to False, if you're redirecting folders they may not show up" -warning 
+    }     
     handleAzureADConnectSSO
     log -text "OnedriveMapper has finished running"
     if($urlOpenAfter.Length -gt 10){Start-Process iexplore.exe $urlOpenAfter}
@@ -3187,13 +3215,18 @@ if($autoMapFavoriteSites){
     }
     if($autoMapFavoritesMode -eq "Converged"){ 
         #get first free driveletter for a converged fake mapping to contain all links
-        Foreach ($drvletter in "DEFGHIJKLMNOPQRSTUVWXYZ".ToCharArray()) {
-            If ($drvlist -notcontains $drvletter) {
-                $drvlist += $drvletter
-                $autoMapFavoritesDriveletter = $drvletter
-                break
+        if($drvlist -contains $autoMapFavoritesDrive){
+            Foreach ($drvletter in "DEFGHIJKLMNOPQRSTUVWXYZ".ToCharArray()) {
+                If ($drvlist -notcontains $drvletter) {
+                    $drvlist += $drvletter
+                    $autoMapFavoritesDriveletter = $drvletter
+                    break
+                }
             }
-        }    
+        }else{
+            $drvlist += $autoMapFavoritesDrive
+            $autoMapFavoritesDriveletter = $autoMapFavoritesDrive            
+        }   
         $targetFolder = Join-Path $Env:TEMP -ChildPath "OnedriveMapperLinks" 
         if(![System.IO.Directory]::Exists($targetFolder)){
             log -text "Desired path for Team site links: $targetFolder does not exist, creating"
@@ -3204,6 +3237,7 @@ if($autoMapFavoriteSites){
             }
         }
         $res = subst "$($autoMapFavoritesDriveletter):" $targetFolder
+        labelDrive "$($autoMapFavoritesDriveLetter):" $autoMapFavoritesDriveLetter $autoMapFavoritesLabel
     }
     $favoritesURL = "https://$O365CustomerName.sharepoint.com/_layouts/15/sharepoint.aspx?v=following"
     if($authMethod -eq "native"){
@@ -3238,15 +3272,7 @@ if($autoMapFavoriteSites){
                 if($odMapping.Count -le 0){
                     log -text "you set automapFavoritesMode to Onedrive, but have not mapped Onedrive!" -fout
                 }
-                $path  = "$($odMapping[0].targetLocationPath)\Links"
-                if(![System.IO.Directory]::Exists($path)){
-                    log -text "Desired path for Team site links: $path does not exist, creating"
-                    try{
-                        $res = New-Item -Path $path -ItemType Directory -Force
-                    }catch{
-                        log -text "Failed to create folder $path! $($Error[0])" -fout
-                    }
-                }
+                $path  = "$($odMapping[0].targetLocationPath)\$autoMapFavoritesLabel"
                 $desiredMappings +=   @{"displayName"=$($result.Title);"targetLocationType"="networklocation";"targetLocationPath"="$($path)";"sourceLocationPath" = $result.Url; "webDavPath"=$desiredUrl;"mapOnlyForSpecificGroup"="favoritesPlaceholder"}
                 log -text "Adding $($result.Url) as $($result.Title) to mapping list as network shortcut in $path"
             } 
@@ -3422,6 +3448,17 @@ foreach($mapping in $desiredMappings){
     if($mapping.alreadyMapped){continue}
     $mapresult = MapDrive $mapping
     if($mapping.sourceLocationPath -eq "autodetect"){   
+        if($autoMapFavoritesMode -eq "Onedrive"){
+            $path  = "$($mapping.targetLocationPath)\$autoMapFavoritesLabel"
+            if(![System.IO.Directory]::Exists($path)){
+                log -text "Desired path for Team site links: $path does not exist, creating"
+                try{
+                    $res = New-Item -Path $path -ItemType Directory -Force
+                }catch{
+                    log -text "Failed to create folder $path! $($Error[0])" -fout
+                }
+            }     
+        }      
         if($addShellLink -and $windowsVersion -eq 6 -and $mapping.targetLocationType -eq "driveletter" -and [System.IO.Directory]::Exists($mapping.targetLocationPath)){
             try{
                 $res = createFavoritesShortcutToO4B -targetLocation $mapping.targetLocationPath
