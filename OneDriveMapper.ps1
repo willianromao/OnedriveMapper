@@ -12,6 +12,7 @@
 #1 remove undesired network locations and do not error out when it already exists and matches the desired location
 #2 MFA revamp (done, Native mode only!)
 #3 try to use InternetGetCookie function from wininet.dll
+#4 Readd restart_explorer code
 
 param(
     [Switch]$asTask,
@@ -62,7 +63,8 @@ $listOfFoldersToRedirect = @(#One line for each folder you want to redirect, onl
 
 ###OPTIONAL CONFIGURATION
 $autoMapFavoriteSites  = $False                    #Set to $True to automatically map any sites/teams/groups the user has favorited (https://yourtenantname.sharepoint.com/_layouts/15/sharepoint.aspx?v=following)
-$favoriteSitesDLName   = "Gedeelde  Documenten"    #Default document library name in Teams/Groups/Sites to map in conjunction with $autoMapFavoriteSites, note the double spaces! Use Shared  Documents for english language tenants
+$autoMapFavoritesMode  = "Normal"                  #Normal = map each detected site to a free driveletter, Onedrive = map to Onedrive subfolder (Links), Converged = single dummy mapping with all links in it
+$favoriteSitesDLName   = "Gedeelde  Documenten"    #Normally autodetected, default document library name in Teams/Groups/Sites to map in conjunction with $autoMapFavoriteSites, note the double spaces! Use Shared  Documents for english language tenants
 $autoResetIE           = $False                    #always clear all Internet Explorer cookies before running (prevents certain occasional issues with IE)
 $authenticateToProxy   = $False                    #use system proxy settings and authenticate automatically
 $libraryName           = "Documents"               #leave this default, unless you wish to map a non-default onedrive library you've created 
@@ -3183,6 +3185,26 @@ if($autoMapFavoriteSites){
             }
         }
     }
+    if($autoMapFavoritesMode -eq "Converged"){ 
+        #get first free driveletter for a converged fake mapping to contain all links
+        Foreach ($drvletter in "DEFGHIJKLMNOPQRSTUVWXYZ".ToCharArray()) {
+            If ($drvlist -notcontains $drvletter) {
+                $drvlist += $drvletter
+                $autoMapFavoritesDriveletter = $drvletter
+                break
+            }
+        }    
+        $targetFolder = Join-Path $Env:TEMP -ChildPath "OnedriveMapperLinks" 
+        if(![System.IO.Directory]::Exists($targetFolder)){
+            log -text "Desired path for Team site links: $targetFolder does not exist, creating"
+            try{
+                $res = New-Item -Path $targetFolder -ItemType Directory -Force
+            }catch{
+                log -text "Failed to create folder $targetFolder! $($Error[0])" -fout
+            }
+        }
+        $res = subst "$($autoMapFavoritesDriveletter):" $targetFolder
+    }
     $favoritesURL = "https://$O365CustomerName.sharepoint.com/_layouts/15/sharepoint.aspx?v=following"
     if($authMethod -eq "native"){
         try{
@@ -3191,23 +3213,47 @@ if($autoMapFavoriteSites){
         }catch{
             log -text "error retrieving favorited sites $($Error[0])" -fout
         }
-        $res = handleSpoReAuth -res $res
+        $res = handleSpoReAuth -res $res        
         $accessToken = returnEnclosedFormValue -res $res -searchString "`"AccessToken`":`""
+        $resource = returnEnclosedFormValue -res $res -searchString "`",`"Resource`":`""
         $payLoad = (returnEnclosedFormValue -res $res -searchString "Payload`":`"{" -endString "}").Replace("\","")
         $payLoad = "{$payLoad}"
         $customHeaders = @{"SPHome-ApiContext" = $payLoad; "SPHome-MicroserviceFlights" = "SPHomeServiceChangeLog;SPHomeServicePersonalCache;SPHomeServiceOLSAsPrimary";"SPHome-ClientType" = "Web";"Authorization" = "Bearer $accessToken"} 
-        $res = JosL-WebRequest -body "" -url "https://northeurope1-sphomep.svc.ms/api/v1/sites/followed?mostRecentFirst=true&start=0&count=100&fillSiteData=true" -method POST -customHeaders $customHeaders -contentType "application/json;odata=verbose" -accept "application/json;odata=verbose"
+        $res = JosL-WebRequest -body "" -url "$resource/api/v1/sites/followed?mostRecentFirst=true&start=0&count=100&fillSiteData=true" -method POST -customHeaders $customHeaders -contentType "application/json;odata=verbose" -accept "application/json;odata=verbose"
         $results = ($res.Content | convertfrom-json).Items
         foreach($result in $results){
-            Foreach ($drvletter in "DEFGHIJKLMNOPQRSTUVWXYZ".ToCharArray()) {
-                If ($drvlist -notcontains $drvletter) {
-                    $drvlist += $drvletter
-                    break
-                }
-            }
             $desiredUrl = $result.Url.Replace("https://","\\").Replace("/_layouts/15/start.aspx#","").Replace("sharepoint.com/","sharepoint.com@SSL\DavWWWRoot\").Replace("/Forms/AllItems.aspx","").Replace("/","\")
-            $desiredMappings +=   @{"displayName"=$($result.Title);"targetLocationType"="driveletter";"targetLocationPath"="$($drvletter):";"sourceLocationPath" = $result.Url; "webDavPath"=$desiredUrl;"mapOnlyForSpecificGroup"="favoritesPlaceholder"}
-            log -text "Adding $($result.Url) as $($result.Title) to mapping list as drive $drvletter"
+            if($autoMapFavoritesMode -eq "Normal"){
+                Foreach ($drvletter in "DEFGHIJKLMNOPQRSTUVWXYZ".ToCharArray()) {
+                    If ($drvlist -notcontains $drvletter) {
+                        $drvlist += $drvletter
+                        break
+                    }
+                }
+                $desiredMappings +=   @{"displayName"=$($result.Title);"targetLocationType"="driveletter";"targetLocationPath"="$($drvletter):";"sourceLocationPath" = $result.Url; "webDavPath"=$desiredUrl;"mapOnlyForSpecificGroup"="favoritesPlaceholder"}
+                log -text "Adding $($result.Url) as $($result.Title) to mapping list as drive $drvletter"
+            }
+            if($autoMapFavoritesMode -eq "Onedrive"){
+                [Array]$odMapping = @($desiredMappings | where{$_.sourceLocationPath -eq "autodetect"})
+                if($odMapping.Count -le 0){
+                    log -text "you set automapFavoritesMode to Onedrive, but have not mapped Onedrive!" -fout
+                }
+                $path  = "$($odMapping[0].targetLocationPath)\Links"
+                if(![System.IO.Directory]::Exists($path)){
+                    log -text "Desired path for Team site links: $path does not exist, creating"
+                    try{
+                        $res = New-Item -Path $path -ItemType Directory -Force
+                    }catch{
+                        log -text "Failed to create folder $path! $($Error[0])" -fout
+                    }
+                }
+                $desiredMappings +=   @{"displayName"=$($result.Title);"targetLocationType"="networklocation";"targetLocationPath"="$($path)";"sourceLocationPath" = $result.Url; "webDavPath"=$desiredUrl;"mapOnlyForSpecificGroup"="favoritesPlaceholder"}
+                log -text "Adding $($result.Url) as $($result.Title) to mapping list as network shortcut in $path"
+            } 
+            if($autoMapFavoritesMode -eq "Converged"){ 
+                $desiredMappings +=   @{"displayName"=$($result.Title);"targetLocationType"="networklocation";"targetLocationPath"="$($autoMapFavoritesDriveletter):";"sourceLocationPath" = $result.Url; "webDavPath"=$desiredUrl;"mapOnlyForSpecificGroup"="favoritesPlaceholder"}
+                log -text "Adding $($result.Url) as $($result.Title) to mapping list as network shortcut in a converged drive with letter $autoMapFavoritesDriveletter"               
+            }
         }
     }else{
         log -text "autoMapFavoriteSites is not supported in authMethod IE :(" -fout
