@@ -25,7 +25,6 @@ $version = "3.15"
 ####MANDATORY MANUAL CONFIGURATION
 $authMethod            = "native"                  #Uses IE automation (old method) when set to ie, uses new native method when set to 'native'
 $O365CustomerName      = "onedrivemapper"          #This should be the name of your tenant (example, ogd as in ogd.onmicrosoft.com) 
-$deleteUnmanagedDrives = $True                     #If set to $True, OnedriveMapper checks if there are 'other' mapped drives to Sharepoint Online/Onedrive that OnedriveMapper does not manage, and disconnects them. This is useful if you change a driveletter.
 $debugmode             = $False                    #Set to $True for debugging purposes. You'll be able to see the script navigate in Internet Explorer if you're using IE auth mode
 $userLookupMode        = 1                         #1 = Active Directory UPN, 2 = Active Directory Email, 3 = Azure AD Joined Windows 10, 4 = query user for his/her login, 5 = lookup by registry key, 6 = display full form (ask for both username and login if no cached versions can be found), 7 = whoami /upn
 $AzureAADConnectSSO    = $False                    #NOT NEEDED FOR NATIVE AUTH, if set to True, will automatically remove AzureADSSO registry key before mapping, and then readd them after mapping. Otherwise, mapping fails because AzureADSSO creates a non-persistent cookie
@@ -47,7 +46,7 @@ $desiredMappings =  @(
     @{"displayName"="Onedrive for Business";"targetLocationType"="driveletter";"targetLocationPath"="X:";"sourceLocationPath"="autodetect";"mapOnlyForSpecificGroup"=""}
 )
 
-#EXAMPLE SETTINGS (Onedrive for Business, two Sharepoint sites, one mapped to a driveletter, one to a shortcut, the last only when a member of the group SEC-SHAREPOINTA)
+#EXAMPLE SETTINGS (Onedrive for Business, two Sharepoint sites, one mapped to a driveletter, one to a shortcut, the last only when a member of the Active Directory group SEC-SHAREPOINTA)
 #$desiredMappings =  @(
 #    @{"displayName"="Onedrive for Business";"targetLocationType"="driveletter";"targetLocationPath"="X:";"sourceLocationPath"="autodetect";"mapOnlyForSpecificGroup"=""},
 #    @{"displayName"="Sharepoint Site A";"targetLocationType"="networklocation";"targetLocationPath"="$env:APPDATA\Microsoft\Windows\Network Shortcuts";"sourceLocationPath"="https://ogd.sharepoint.com/sites/OGDWerkplek/Gedeelde%20%20documenten/Forms/AllItems.aspx";"mapOnlyForSpecificGroup"="SEC-SHAREPOINTA"},
@@ -2994,19 +2993,7 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
     }else{
         $desiredMappings[$count].webDavPath = $mapURLpersonal
     }
-    #check if driveletters are already mapped
-    if($desiredMappings[$count].targetLocationType -eq "driveletter" -and [System.IO.Directory]::Exists($($desiredMappings[$count].targetLocationPath))){
-        [string]$mapped_URL = @(Get-WMIObject -query "Select * from Win32_NetworkConnection Where LocalName = '$($desiredMappings[$count].targetLocationPath)'")[0].RemoteName.Replace("DavWWWRoot\","").Replace("@SSL","")  
-        if($mapped_URL.StartsWith($desiredMappings[$count].webDavPath)){
-            log -text "the mapped url for $($desiredMappings[$count].targetLocationPath) ($mapped_URL) matches the expected URL of $($desiredMappings[$count].webDavPath), no need to remap"
-            $desiredMappings[$count].alreadyMapped = $True
-        }else{
-            $desiredMappings[$count].alreadyMapped = $False
-            log -text "the mapped url for $($desiredMappings[$count].targetLocationPath) ($mapped_URL) does not match the expected partial URL of $($desiredMappings[$count].webDavPath)"
-        }                   
-    }else{
-        $desiredMappings[$count].alreadyMapped = $False        
-    }
+
     if($desiredMappings[$count].mapOnlyForSpecificGroup -and $groups){
         $group = $groups -contains $desiredMappings[$count].mapOnlyForSpecificGroup
         if($group){ 
@@ -3018,11 +3005,6 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
     }
 }
  
-if(@($desiredMappings | where-object{$_.alreadyMapped -eq $False}).Count -le 0){
-    log -text "no unmapped or incorrectly mapped drives detected"
-    abort_OM    
-}
-
 #update progress bar
 if($showProgressBar) {
     $progressbar1.Value = 20
@@ -3202,6 +3184,14 @@ if($showProgressBar) {
     $script:form1.Refresh()
 }
 
+#clean up any existing mappings
+subst | % {subst $_.SubString(0,2) /D}
+Get-PSDrive -PSProvider filesystem | Where-Object {$_.DisplayRoot} | % {
+    if($_.DisplayRoot.StartsWith("\\$($O365CustomerName).sharepoint.com") -or $_.DisplayRoot.StartsWith("\\$($O365CustomerName)-my.sharepoint.com")){
+        try{$del = NET USE "$($_.Name):" /DELETE /Y 2>&1}catch{$Null}     
+    }
+}
+
 if($autoMapFavoriteSites){
     #get drives already in use
     $drvlist=(Get-PSDrive -PSProvider filesystem).Name
@@ -3235,6 +3225,10 @@ if($autoMapFavoriteSites){
             }catch{
                 log -text "Failed to create folder $targetFolder! $($Error[0])" -fout
             }
+        }else{
+            try{
+                Get-ChildItem $targetFolder | Remove-Item -Force -Confirm:$False -Recurse
+            }catch{$Null}
         }
         $res = subst "$($autoMapFavoritesDriveletter):" $targetFolder
         labelDrive "$($autoMapFavoritesDriveLetter):" $autoMapFavoritesDriveLetter $autoMapFavoritesLabel
@@ -3283,20 +3277,7 @@ if($autoMapFavoriteSites){
         }
     }else{
         log -text "autoMapFavoriteSites is not supported in authMethod IE :(" -fout
-    }
-}
-
-#delete mappings to Sharepoint / Onedrive that aren't managed by OnedriveMapper
-if($deleteUnmanagedDrives){
-    [Array]$currentMappings = @(Get-WMIObject -query "Select * from Win32_NetworkConnection" | Where-Object {$_})
-    foreach($currentMapping in $currentMappings){
-        if($desiredMappings.targetLocationPath -contains $currentMapping.LocalName){continue}
-        $searchStringSpO = "\\$($O365CustomerName).sharepoint.com"
-        $searchStringO4B = "\\$($O365CustomerName)-my.sharepoint.com"
-        if($currentMapping.RemoteName.StartsWith($searchStringSpO) -or $currentMapping.RemoteName.StartsWith($searchStringO4B)){
-            try{$del = NET USE $currentMapping.LocalName /DELETE /Y 2>&1}catch{$Null}
-        }
-    }
+    }   
 }
 
 #generate cookies
@@ -3437,10 +3418,12 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
     }
 }
 
-try{
-    setCookies
-}catch{
-    log -text "Failed to set cookies, error received: $($Error[0])" -fout
+if($authMethod -eq "native"){
+    try{
+        setCookies
+    }catch{
+        log -text "Failed to set cookies, error received: $($Error[0])" -fout
+    }
 }
 
 #map the drives
@@ -3457,7 +3440,11 @@ foreach($mapping in $desiredMappings){
                 }catch{
                     log -text "Failed to create folder $path! $($Error[0])" -fout
                 }
-            }     
+            }else{
+                try{
+                    Get-ChildItem $path | Remove-Item -Force -Confirm:$False -Recurse
+                }catch{$Null}    
+            }
         }      
         if($addShellLink -and $windowsVersion -eq 6 -and $mapping.targetLocationType -eq "driveletter" -and [System.IO.Directory]::Exists($mapping.targetLocationPath)){
             try{
