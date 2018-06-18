@@ -65,6 +65,7 @@ $autoMapFavoriteSites  = $False                     #Set to $True to automatical
 $autoMapFavoritesMode  = "Normal"                  #Normal = map each detected site to a free driveletter, Onedrive = map to Onedrive subfolder (Links), Converged = single dummy mapping with all links in it
 $autoMapFavoritesDrive = "S"                       #Driveletter when using automapFavoritesMode = "Converged"
 $autoMapFavoritesLabel = "Teams"                   #Label of favorites container, ie; folder name if automapFavoritesMode = "Onedrive", drive label if automapFavoritesMode = "Converged"
+$autoMapFavoritesDrvLetterList = "DEFGHIJKLMNOPQRSTUVWXYZ" #List of driveletters that shall be used (you can ommit some of yours "reserved" letters)
 $favoriteSitesDLName   = "Gedeelde  Documenten"    #Normally autodetected, default document library name in Teams/Groups/Sites to map in conjunction with $autoMapFavoriteSites, note the double spaces! Use Shared  Documents for english language tenants
 $restartExplorer       = $False                    #Leave at False unless you're redirecting folders and they don't get redirected properly
 $autoResetIE           = $False                    #always clear all Internet Explorer cookies before running (prevents certain occasional issues with IE)
@@ -3206,7 +3207,7 @@ if($autoMapFavoriteSites){
     if($autoMapFavoritesMode -eq "Converged"){ 
         #get first free driveletter for a converged fake mapping to contain all links
         if($drvlist -contains $autoMapFavoritesDrive){
-            Foreach ($drvletter in "DEFGHIJKLMNOPQRSTUVWXYZ".ToCharArray()) {
+            Foreach ($drvletter in $autoMapFavoritesDrvLetterList.ToCharArray()) {
                 If ($drvlist -notcontains $drvletter) {
                     $drvlist += $drvletter
                     $autoMapFavoritesDriveletter = $drvletter
@@ -3252,7 +3253,7 @@ if($autoMapFavoriteSites){
         foreach($result in $results){
             $desiredUrl = $result.Url.Replace("https://","\\").Replace("/_layouts/15/start.aspx#","").Replace("sharepoint.com/","sharepoint.com@SSL\DavWWWRoot\").Replace("/Forms/AllItems.aspx","").Replace("/","\")
             if($autoMapFavoritesMode -eq "Normal"){
-                Foreach ($drvletter in "DEFGHIJKLMNOPQRSTUVWXYZ".ToCharArray()) {
+                Foreach ($drvletter in $autoMapFavoritesDrvLetterList.ToCharArray()) {
                     If ($drvlist -notcontains $drvletter) {
                         $drvlist += $drvletter
                         break
