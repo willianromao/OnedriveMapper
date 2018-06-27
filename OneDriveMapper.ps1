@@ -12,7 +12,6 @@
 #1 remove undesired network locations and do not error out when it already exists and matches the desired location
 #2 MFA revamp (done, Native mode only!)
 #3 try to use InternetGetCookie function from wininet.dll
-#4 Readd restart_explorer code
 
 param(
     [Switch]$asTask,
@@ -20,7 +19,7 @@ param(
     [Switch]$hideConsole
 )
 
-$version = "3.16"
+$version = "3.17"
 
 ####MANDATORY MANUAL CONFIGURATION
 $authMethod            = "native"                  #Uses IE automation (old method) when set to ie, uses new native method when set to 'native'
@@ -3191,6 +3190,11 @@ Get-PSDrive -PSProvider filesystem | Where-Object {$_.DisplayRoot} | % {
     if($_.DisplayRoot.StartsWith("\\$($O365CustomerName).sharepoint.com") -or $_.DisplayRoot.StartsWith("\\$($O365CustomerName)-my.sharepoint.com")){
         try{$del = NET USE "$($_.Name):" /DELETE /Y 2>&1}catch{$Null}     
     }
+}
+
+#clean up empty mappings
+Get-PSDrive -PSProvider filesystem | Where-Object {($_.Used -eq 0 -and $_.Free -eq $Null)} | % {
+    try{$_ | Remove-PSDRive -Force}catch{$Null}     
 }
 
 if($autoMapFavoriteSites){
