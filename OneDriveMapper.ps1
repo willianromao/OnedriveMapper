@@ -3197,6 +3197,7 @@ Get-PSDrive -PSProvider filesystem | Where-Object {($_.Used -eq 0 -and $_.Free -
     try{$_ | Remove-PSDRive -Force}catch{$Null}     
 }
 
+$suffixCounter = $Null #used in case converged mappings with the same name are detected
 if($autoMapFavoriteSites){
     #get drives already in use
     $drvlist=(Get-PSDrive -PSProvider filesystem).Name
@@ -3213,6 +3214,7 @@ if($autoMapFavoriteSites){
         if($drvlist -contains $autoMapFavoritesDrive){
             Foreach ($drvletter in $autoMapFavoritesDrvLetterList.ToCharArray()) {
                 If ($drvlist -notcontains $drvletter) {
+                    log -text "You set $autoMapFavoritesDrive as converged driveletter, but it is not available, using $drvletter instead" -warning
                     $drvlist += $drvletter
                     $autoMapFavoritesDriveletter = $drvletter
                     break
@@ -3263,21 +3265,25 @@ if($autoMapFavoriteSites){
                         break
                     }
                 }
+                
                 $desiredMappings +=   @{"displayName"=$($result.Title);"targetLocationType"="driveletter";"targetLocationPath"="$($drvletter):";"sourceLocationPath" = $result.Url; "webDavPath"=$desiredUrl;"mapOnlyForSpecificGroup"="favoritesPlaceholder"}
                 log -text "Adding $($result.Url) as $($result.Title) to mapping list as drive $drvletter"
             }
+            if(@($desiredMappings | where {$_.displayName -eq $result.Title}).Count -gt 0){
+                $suffixCounter++    
+            }            
             if($autoMapFavoritesMode -eq "Onedrive"){
                 [Array]$odMapping = @($desiredMappings | where{$_.sourceLocationPath -eq "autodetect"})
                 if($odMapping.Count -le 0){
                     log -text "you set automapFavoritesMode to Onedrive, but have not mapped Onedrive!" -fout
                 }
                 $path  = "$($odMapping[0].targetLocationPath)\$autoMapFavoritesLabel"
-                $desiredMappings +=   @{"displayName"=$($result.Title);"targetLocationType"="networklocation";"targetLocationPath"="$($path)";"sourceLocationPath" = $result.Url; "webDavPath"=$desiredUrl;"mapOnlyForSpecificGroup"="favoritesPlaceholder"}
-                log -text "Adding $($result.Url) as $($result.Title) to mapping list as network shortcut in $path"
+                $desiredMappings +=   @{"displayName"="$($result.Title)$suffixCounter";"targetLocationType"="networklocation";"targetLocationPath"="$($path)";"sourceLocationPath" = $result.Url; "webDavPath"=$desiredUrl;"mapOnlyForSpecificGroup"="favoritesPlaceholder"}
+                log -text "Adding $($result.Url) as $($result.Title)$suffixCounter to mapping list as network shortcut in $path"
             } 
             if($autoMapFavoritesMode -eq "Converged"){ 
-                $desiredMappings +=   @{"displayName"=$($result.Title);"targetLocationType"="networklocation";"targetLocationPath"="$($autoMapFavoritesDriveletter):";"sourceLocationPath" = $result.Url; "webDavPath"=$desiredUrl;"mapOnlyForSpecificGroup"="favoritesPlaceholder"}
-                log -text "Adding $($result.Url) as $($result.Title) to mapping list as network shortcut in a converged drive with letter $autoMapFavoritesDriveletter"               
+                $desiredMappings +=   @{"displayName"="$($result.Title)$suffixCounter";"targetLocationType"="networklocation";"targetLocationPath"="$($autoMapFavoritesDriveletter):";"sourceLocationPath" = $result.Url; "webDavPath"=$desiredUrl;"mapOnlyForSpecificGroup"="favoritesPlaceholder"}
+                log -text "Adding $($result.Url) as $($result.Title)$suffixCounter to mapping list as network shortcut in a converged drive with letter $autoMapFavoritesDriveletter"               
             }
         }
     }else{
