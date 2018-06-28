@@ -290,6 +290,9 @@ function Add-NetworkLocation
             Write-Verbose -Message "Creating shortcut to `"$networkLocationTarget`" at `"$networkLocationPath\$networkLocationName\target.lnk`"."
             $Shortcut = $WshShell.CreateShortcut("$networkLocationPath\$networkLocationName\target.lnk")
             $Shortcut.TargetPath = $networkLocationTarget
+            if([System.IO.File]::Exists($onedriveIconPath)){
+                $Shortcut.IconLocation = "$($onedriveIconPath), 0"
+            }            
             $Shortcut.Description = "Created $(Get-Date -Format s) by $($MyInvocation.MyCommand)."
             $Shortcut.Save()
         }
