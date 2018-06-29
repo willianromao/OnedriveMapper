@@ -332,7 +332,14 @@ function handleMFArequest{
         $res,
         $clientId
     )
-    $mfaMethod = returnEnclosedFormValue -res $res -searchString "`"authMethodId`":`""
+    $mfaArray = returnEnclosedFormValue -res $res -searchString "`"arrUserProofs`":" -endString "]" -includeEndString
+    if($mfaArray -ne -1){
+        $mfaArray = $mfaArray | ConvertFrom-Json
+        $mfaMethod = @($mfaArray | Where-Object {$_.isDefault})[0].authMethodId
+    }else{
+        $mfaMethod = returnEnclosedFormValue -res $res -searchString "`"authMethodId`":`""
+    }
+
     if($mfaMethod -eq -1){
         Throw "No MFA method detected"
     }
@@ -673,7 +680,8 @@ function returnEnclosedFormValue{
     Param(
         $res,
         $searchString,
-		$endString = "`"",
+        $endString = "`"",
+        [Switch]$includeEndString,
         [Switch]$decode
     )
     try{
@@ -686,6 +694,9 @@ function returnEnclosedFormValue{
         $searchLength = $res.Content.IndexOf($endString,$startLoc)-$startLoc
         if($searchLength -le 0){
             return -1
+        }
+        if($includeEndString){
+            $searchLength += $endString.Length
         }
         if($decode){
             return([System.Web.HttpUtility]::UrlDecode($res.Content.Substring($startLoc,$searchLength)))
