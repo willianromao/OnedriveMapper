@@ -61,7 +61,7 @@ $listOfFoldersToRedirect = @(#One line for each folder you want to redirect, onl
 
 ###OPTIONAL CONFIGURATION
 $autoMapFavoriteSites  = $False                     #Set to $True to automatically map any sites/teams/groups the user has favorited (https://yourtenantname.sharepoint.com/_layouts/15/sharepoint.aspx?v=following)
-$autoMapFavoritesMode  = "Normal"                  #Normal = map each detected site to a free driveletter, Onedrive = map to Onedrive subfolder (Links), Converged = single dummy mapping with all links in it
+$autoMapFavoritesMode  = "Converged"                  #Normal = map each detected site to a free driveletter, Onedrive = map to Onedrive subfolder (Links), Converged = single dummy mapping with all links in it
 $autoMapFavoritesDrive = "S"                       #Driveletter when using automapFavoritesMode = "Converged"
 $autoMapFavoritesLabel = "Teams"                   #Label of favorites container, ie; folder name if automapFavoritesMode = "Onedrive", drive label if automapFavoritesMode = "Converged"
 $autoMapFavoritesDrvLetterList = "DEFGHIJKLMNOPQRSTUVWXYZ" #List of driveletters that shall be used (you can ommit some of yours "reserved" letters)
@@ -3219,6 +3219,8 @@ if($authMethod -ne "native"){
             log -text "native auth login mode failed, aborting script" -fout
             abort_OM
         }
+    }else{
+        log -text "Login succeeded"
     }
 }
 
@@ -3449,7 +3451,16 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
             $res = handleSpoReAuth -res $res
             if($desiredMappings[$count]."mapOnlyForSpecificGroup" -eq "favoritesPlaceholder"){
                 try{
-                    $documentLibrary = @((returnEnclosedFormValue -res $res -searchString "`"navigationInfo`":" -endString ",`"guestsEnabled`"" | convertfrom-json).quickLaunch | where{$_.IsDocLib})[0]
+                    try{
+                        $documentLibrary = @((returnEnclosedFormValue -res $res -searchString "`"navigationInfo`":" -endString ",`"guestsEnabled`"" | convertfrom-json).quickLaunch | where{$_.IsDocLib})[0]
+                    }catch{
+                        try{
+                            $documentLibrary = @((returnEnclosedFormValue -res $res -searchString "`"navigationInfo`":" -endString ",`"clientPersistedCacheKey`"" | convertfrom-json).quickLaunch | where{$_.IsDocLib})[0]
+                        }catch{
+                            Throw
+                        }
+                    }
+                    
                     if(!$documentLibrary){
                         Throw
                     }else{
