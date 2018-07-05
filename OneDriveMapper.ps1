@@ -122,6 +122,8 @@ $privateSuffix = "-my"
 $script:errorsForUser = ""
 $userLoginRegistryKey = "HKCU:\System\CurrentControlSet\Control\CustomUID"
 $onedriveIconPath = "C:\GitRepos\OnedriveMapper\onedrive.ico" #if this file exists, and you've set addShellLink to True, it will be used as icon for the shortcut
+$teamsIconPath = "C:\GitRepos\OnedriveMapper\teams.ico" #if this file exists, and you've set addShellLink to True, it will be used as icon for the shortcut
+$sharepointIconPath = "C:\GitRepos\OnedriveMapper\sharepoint.ico" #if this file exists, and you've set addShellLink to True, it will be used as icon for the shortcut
 $i_MaxLocalLogSize = 2 #max local log size in MB
 $certificateMatchMethod = 1 #used with adfsMode = 3, when set to 1 it'll match based on the local username, if set to 2 it'll use the following variable to match to a template name
 $certificateTemplateName  = "Office365_Client_Authentication"
@@ -240,7 +242,8 @@ function Add-NetworkLocation
     (
         [string]$networkLocationPath="$env:APPDATA\Microsoft\Windows\Network Shortcuts",
         [Parameter(Mandatory=$true)][string]$networkLocationName ,
-        [Parameter(Mandatory=$true)][string]$networkLocationTarget
+        [Parameter(Mandatory=$true)][string]$networkLocationTarget,
+        [String]$iconPath
     )
     Begin
     {
@@ -290,8 +293,8 @@ function Add-NetworkLocation
             Write-Verbose -Message "Creating shortcut to `"$networkLocationTarget`" at `"$networkLocationPath\$networkLocationName\target.lnk`"."
             $Shortcut = $WshShell.CreateShortcut("$networkLocationPath\$networkLocationName\target.lnk")
             $Shortcut.TargetPath = $networkLocationTarget
-            if([System.IO.File]::Exists($onedriveIconPath)){
-                $Shortcut.IconLocation = "$($onedriveIconPath), 0"
+            if([System.IO.File]::Exists($iconPath)){
+                $Shortcut.IconLocation = "$($iconPath), 0"
             }            
             $Shortcut.Description = "Created $(Get-Date -Format s) by $($MyInvocation.MyCommand)."
             $Shortcut.Save()
@@ -1212,7 +1215,14 @@ function MapDrive{
         }
     }else{
         try{
-            Add-NetworkLocation -networkLocationPath $($driveMapping.targetLocationPath) -networkLocationName $($driveMapping.displayName) -networkLocationTarget $($driveMapping.webDavPath) -Verbose
+            if($driveMapping.sourceLocationPath -eq "autodetect"){
+                $desiredIconPath = $onedriveIconPath
+            }elseif($driveMapping.mapOnlyForSpecificGroup -eq "favoritesPlaceholder"){
+                $desiredIconPath = $teamsIconPath
+            }else{
+                $desiredIconPath = $sharepointIconPath
+            }
+            Add-NetworkLocation -networkLocationPath $($driveMapping.targetLocationPath) -networkLocationName $($driveMapping.displayName) -networkLocationTarget $($driveMapping.webDavPath) -iconPath $desiredIconPath -Verbose
             log -text "Added network location $($driveMapping.displayName)"
         }catch{
             log -text "failed to add network location: $($Error[0])" -fout
@@ -1602,6 +1612,44 @@ function checkErrorAtLoginValue{
     }
 }
 
+function handleO365Redirect{
+    Param(
+        $res
+    )
+    $redirectFollowed = $False
+    $nextURL = returnEnclosedFormValue -res $res -searchString "form method=`"POST`" name=`"hiddenform`" action=`""
+    $nextURL = [System.Web.HttpUtility]::HtmlDecode($nextURL)
+    $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
+    $id_token = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"id_token`" value=`""
+    $state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"state`" value=`""
+    $session_state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"session_state`" value=`""
+    if($nextURL -ne -1 -and $id_token -ne -1){
+        log -text "Detected a id_token redirect to Office.com, following..."
+        $body = "code=$([System.Web.HttpUtility]::UrlEncode($code))&id_token=$([System.Web.HttpUtility]::UrlEncode($id_token))&state=$([System.Web.HttpUtility]::UrlEncode($state))&session_state=$([System.Web.HttpUtility]::UrlEncode($session_state))"
+        try{
+            $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"  
+            $redirectFollowed=$True
+        }catch{
+            log -text "Error detected while following id_token redirect, check the FAQ for help" -fout
+            Throw "Failed to follow redirect"           
+        }
+    }     
+    $nextURL = returnEnclosedFormValue -res $res -searchString "form name=`"fmHF`" id=`"fmHF`" action=`"" -decode
+    $nextURL = [System.Web.HttpUtility]::HtmlDecode($nextURL)
+    $value = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"t`" id=`"t`" value=`""
+    if($value -ne -1){
+        $body = "t=$value"                
+        log -text "Detected fmHF redirect, following"
+        try{
+            $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"       
+            $redirectFollowed=$True
+        }catch{
+            log -text "Error detected while following fmHF redirect, check the FAQ for help" -fout
+            Throw 
+        }    
+    }    
+    return $res,$redirectFollowed     
+}
 function loginV2(){
     Param(
         $tryAgainRes
@@ -2082,41 +2130,23 @@ function loginV2(){
         return $True
     }
 
-    #check for the sign in method directly to office.com
-    $nextURL = returnEnclosedFormValue -res $res -searchString "form method=`"POST`" name=`"hiddenform`" action=`""
-    $nextURL = [System.Web.HttpUtility]::HtmlDecode($nextURL)
-    $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
-    $id_token = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"id_token`" value=`""
-    $state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"state`" value=`""
-    $session_state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"session_state`" value=`""
-    if($nextURL -ne -1 -and $id_token -ne -1){
-        log -text "Detected a redirect to Office.com, following..."
-        $body = "code=$([System.Web.HttpUtility]::UrlEncode($code))&id_token=$([System.Web.HttpUtility]::UrlEncode($id_token))&state=$([System.Web.HttpUtility]::UrlEncode($state))&session_state=$([System.Web.HttpUtility]::UrlEncode($session_state))"
-        try{
-            $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"  
-            log -text "Logged into Office 365!"
-            return $True
-        }catch{
-            log -text "Error detected while following redirect, check the FAQ for help" -fout
-            return $False            
+    #follow first 1-2 redirects, fail if none are detected or if redirects are detected but fail (abnormal flow)
+    try{
+        $res = handleO365Redirect -res $res
+        if($res[1] -eq $False){
+            return $False
         }
+    }catch{
+        return $False
     }
 
-    #we should be back at an O365 page now, depending on the sign in method we may still have to follow a redirect
-    $nextURL = returnEnclosedFormValue -res $res -searchString "form name=`"fmHF`" id=`"fmHF`" action=`"" -decode
-    $nextURL = [System.Web.HttpUtility]::HtmlDecode($nextURL)
-    $value = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"t`" id=`"t`" value=`""
-    if($value -ne -1){
-        $body = "t=$value"
-        try{
-            $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"       
-            log -text "Logged into Office 365!"
-            return $True
-        }catch{
-            log -text "Error detected while following redirect, check the FAQ for help" -fout
-            return $False
-        }    
-    }
+    #sometimes additional redirects are needed, fail if redirects fail, succeed if none are detected or if they are followed
+    try{
+        $res = handleO365Redirect -res $res[0]
+        return $True
+    }catch{
+        return $False
+    }    
 }
 
 #region loginFunction
