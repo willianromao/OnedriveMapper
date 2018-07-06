@@ -382,7 +382,7 @@ function handleMFArequest{
         }catch{
             Throw "SAS EndAuth failure, MFA initiation not accepted"
         }
-        Sleep -s 5
+        Start-Sleep -s 5
         $waitedForMFA+=5
     }
 
@@ -2140,13 +2140,30 @@ function loginV2(){
         return $False
     }
 
+    #MFA check
+    try{
+        $res = handleMFArequest -res $res -clientId $clientId
+        log -text "MFA challenge completed"
+    }catch{
+        log -text "MFA check result: $_"
+    }    
+
     #sometimes additional redirects are needed, fail if redirects fail, succeed if none are detected or if they are followed
     try{
         $res = handleO365Redirect -res $res[0]
-        return $True
     }catch{
         return $False
     }    
+
+    #MFA check
+    try{
+        $res = handleMFArequest -res $res -clientId $clientId
+        log -text "MFA challenge completed"
+    }catch{
+        log -text "MFA check result: $_"
+    }   
+    
+    return $True
 }
 
 #region loginFunction
@@ -3008,7 +3025,7 @@ log -text "Maximum file upload size is set to $sizeLimit MB" -warning
 if($authMethod -ne "native"){
     $BaseKeypath = "HKCU:\Software\Policies\Microsoft\Windows\CurrentVersion\Internet Settings\Zones\" 
     for($i=0; $i -lt 5; $i++){ 
-        $curr = Get-ItemProperty -Path "$($BaseKeypath)\$($i)\" -Name "2500" -ErrorAction SilentlyContinue | select -exp 2500 
+        $curr = Get-ItemProperty -Path "$($BaseKeypath)\$($i)\" -Name "2500" -ErrorAction SilentlyContinue | Select-Object -exp 2500 
         if($curr -ne $Null -and $curr -ne 3){ 
             log -text "IE Zone $i protectedmode is enabled through group policy, autoprotectedmode cannot disable it. This will likely cause the script to fail." -fout
         }
@@ -3094,7 +3111,7 @@ if($authMethod -ne "native" -and $autoProtectedMode){
     #store old values and change new ones 
     try{ 
         for($i=0; $i -lt 5; $i++){ 
-            $curr = Get-ItemProperty -Path "$($BaseKeypath)\$($i)\" -Name "2500" -ErrorAction SilentlyContinue| select -exp 2500 
+            $curr = Get-ItemProperty -Path "$($BaseKeypath)\$($i)\" -Name "2500" -ErrorAction SilentlyContinue| Select-Object -exp 2500 
             if($curr -ne $Null){ 
                 $protectedModeValues[$i] = $curr 
                 log -text "Zone $i was set to $curr, setting it to 3" 
@@ -3315,11 +3332,11 @@ if($autoMapFavoriteSites){
                 $desiredMappings +=   @{"displayName"=$($result.Title);"targetLocationType"="driveletter";"targetLocationPath"="$($drvletter):";"sourceLocationPath" = $result.Url; "webDavPath"=$desiredUrl;"mapOnlyForSpecificGroup"="favoritesPlaceholder"}
                 log -text "Adding $($result.Url) as $($result.Title) to mapping list as drive $drvletter"
             }
-            if(@($desiredMappings | where {$_.displayName -eq $result.Title}).Count -gt 0){
+            if(@($desiredMappings | Where-Object {$_.displayName -eq $result.Title}).Count -gt 0){
                 $suffixCounter++    
             }            
             if($autoMapFavoritesMode -eq "Onedrive"){
-                [Array]$odMapping = @($desiredMappings | where{$_.sourceLocationPath -eq "autodetect"})
+                [Array]$odMapping = @($desiredMappings | Where-Object{$_.sourceLocationPath -eq "autodetect"})
                 if($odMapping.Count -le 0){
                     log -text "you set automapFavoritesMode to Onedrive, but have not mapped Onedrive!" -fout
                 }
@@ -3452,10 +3469,10 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
             if($desiredMappings[$count]."mapOnlyForSpecificGroup" -eq "favoritesPlaceholder"){
                 try{
                     try{
-                        $documentLibrary = @((returnEnclosedFormValue -res $res -searchString "`"navigationInfo`":" -endString ",`"guestsEnabled`"" | convertfrom-json).quickLaunch | where{$_.IsDocLib})[0]
+                        $documentLibrary = @((returnEnclosedFormValue -res $res -searchString "`"navigationInfo`":" -endString ",`"guestsEnabled`"" | convertfrom-json).quickLaunch | Where-Object{$_.IsDocLib})[0]
                     }catch{
                         try{
-                            $documentLibrary = @((returnEnclosedFormValue -res $res -searchString "`"navigationInfo`":" -endString ",`"clientPersistedCacheKey`"" | convertfrom-json).quickLaunch | where{$_.IsDocLib})[0]
+                            $documentLibrary = @((returnEnclosedFormValue -res $res -searchString "`"navigationInfo`":" -endString ",`"clientPersistedCacheKey`"" | convertfrom-json).quickLaunch | Where-Object{$_.IsDocLib})[0]
                         }catch{
                             Throw
                         }
