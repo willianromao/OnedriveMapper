@@ -3077,7 +3077,7 @@ handleAzureADConnectSSO -initial
 log -text "Base URL: $($baseURL) `n" 
 
 if($autoResetIE){
-    & RunDll32.exe InetCpl.cpl,ResetIEtoDefaults
+    & RunDll32.exe InetCpl.cpl,ClearMyTracksByProcess 2
 }
 
 #Start IE and stop it once to make sure IE sets default registry keys 
