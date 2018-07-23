@@ -3316,13 +3316,25 @@ if($autoMapFavoriteSites){
         $accessToken = returnEnclosedFormValue -res $res -searchString "`"AccessToken`":`""
         $resource = returnEnclosedFormValue -res $res -searchString "`",`"Resource`":`""
         if($accessToken -eq -1 -and $resource -eq -1){
-            log -text "Failed to retrieve favorited sites, mapping to these sites will fail" -fout
-        }else{
+            log -text "Failed to retrieve favorited sites, mapping to these sites will fail if 2nd attempt fails" -fout
+            try{
+                log -text "Retrieving favorited sites because autoMapFavoriteSites is set to TRUE"
+                $customHeaders = @{"Upgrade-Insecure-Requests" = 1;"Cache-Control" = "max-age=0";"Accept-Language"="en-US,en;q=0.9,nl;q=0.8"}
+                $res = JosL-WebRequest -url $favoritesURL -Method GET -accept "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8" -customHeaders $customHeaders
+                $accessToken = returnEnclosedFormValue -res $res -searchString "`"AccessToken`":`""
+                $resource = returnEnclosedFormValue -res $res -searchString "`",`"Resource`":`""
+            }catch{
+                log -text "error retrieving favorited sites $($Error[0])" -fout
+            }
+        }
+        try{
             $payLoad = (returnEnclosedFormValue -res $res -searchString "Payload`":`"{" -endString "}").Replace("\","")
             $payLoad = "{$payLoad}"
             $customHeaders = @{"SPHome-ApiContext" = $payLoad; "SPHome-MicroserviceFlights" = "SPHomeServiceChangeLog;SPHomeServicePersonalCache;SPHomeServiceOLSAsPrimary";"SPHome-ClientType" = "Web";"Authorization" = "Bearer $accessToken"} 
             $res = JosL-WebRequest -body "" -url "$resource/api/v1/sites/followed?mostRecentFirst=true&start=0&count=100&fillSiteData=true" -method POST -customHeaders $customHeaders -contentType "application/json;odata=verbose" -accept "application/json;odata=verbose"
             $results = ($res.Content | convertfrom-json).Items
+        }catch{
+            log -text "Failed to retrieve favorite sites" -fout
         }
         foreach($result in $results){
             $desiredUrl = $result.Url.Replace("https://","\\").Replace("/_layouts/15/start.aspx#","").Replace("sharepoint.com/","sharepoint.com@SSL\DavWWWRoot\").Replace("/Forms/AllItems.aspx","").Replace("/","\")
