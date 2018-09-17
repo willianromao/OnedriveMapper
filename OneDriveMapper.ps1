@@ -225,6 +225,21 @@ if($desiredMappings.mapOnlyForSpecificGroup | Where-Object{$_.Length -gt 0}){
     }
 }
 
+#Find a driveletter for any drivemappings that have autotect as targetlocationpath
+$drvlist=(Get-PSDrive -PSProvider filesystem).Name
+for($i=0;$i -lt $desiredMappings.Count;$i++){
+    if($desiredMappings[$i].targetLocationPath -eq "autodetect"){
+        Foreach ($drvletter in $autoMapFavoritesDrvLetterList.ToCharArray()) {
+            If ($drvlist -notcontains $drvletter) {
+                $drvlist += $drvletter
+                $desiredMappings[$i].targetLocationPath = "$($drvletter):"
+                log -text "automatically selected drive $drvletter for Onedrive mapping"
+                break
+            }
+        }
+    }
+}
+
 function Add-NetworkLocation
 <#
     Author: Tom White, 2015.
@@ -2723,10 +2738,10 @@ if(-NOT [appdomain]::currentdomain.getassemblies() -match "System.Web"){
 
 #try to set TLS to v1.2, Powershell defaults to v1.0
 try{
-    $res = [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    log -text "Set TLS protocol version to 1.2"
+    $res = [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12
+    log -text "Set TLS protocol version to prefer v1.2"
 }catch{
-    log -text "Failed to set TLS protocol to version 1.2 $($Error[0])" -fout
+    log -text "Failed to set TLS protocol to perfer v1.2 $($Error[0])" -fout
 }
 
 #get IE version on this machine
