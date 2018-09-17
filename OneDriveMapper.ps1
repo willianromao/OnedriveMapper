@@ -19,7 +19,7 @@ param(
     [Switch]$hideConsole
 )
 
-$version = "3.17"
+$version = "3.18"
 
 ####MANDATORY MANUAL CONFIGURATION
 $authMethod            = "native"                  #Uses IE automation (old method) when set to ie, uses new native method when set to 'native'
@@ -35,7 +35,7 @@ $showElevatedConsole   = $True
 <#if you wish to add more, add more lines to the below (copy the first above itself). Parameter explanation:
 displayName = the label of the driveletter, or name of the shortcut we'll create to the target site/library
 targetLocationType = driveletter OR networklocation, if you use driveletter, enter a driveletter in targetLocationPath. If you use networklocation, enter a path to a folder where you want the shortcut to be created
-targetLocationPath = enter a driveletter if mapping to a driveletter, enter a folder path if just creating shortcuts
+targetLocationPath = enter a driveletter if mapping to a driveletter, enter a folder path if just creating shortcuts, type 'autodetect' if you want the script to automatically find a free driveletter
 sourceLocationPath = autodetect or the full URL to the sharepoint / groups site. Autodetect automatically makes this a mapping to Onedrive For Business
 mapOnlyForSpecificGroup = this only works for DOMAIN JOINED devices that can reach a domain controller and means that the mapping will only be made if the user is a member of the group you specify here
 #>
