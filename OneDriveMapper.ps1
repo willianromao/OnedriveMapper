@@ -2551,27 +2551,15 @@ function getUserLogin{
             3 {
             #Windows 10
                  try{
-                    $basePath = "HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WorkplaceJoin\AADNGC"
+                    log -text "userLookupMode is set to 3, using SID discovery method" -fout
+                    $objUser = New-Object System.Security.Principal.NTAccount($Env:USERNAME)
+                    $strSID = ($objUser.Translate([System.Security.Principal.SecurityIdentifier])).Value
+                    $basePath = "HKLM:\SOFTWARE\Microsoft\IdentityStore\Cache\$strSID\IdentityCache\$strSID"
                     if((test-path $basePath) -eq $False){
-                        log -text "userLookupMode is set to 3, but the registry path $basePath does not exist! Using method 2" -fout
-                        $basePath = "HKCU:\Software\Classes\Local Settings\Software\Microsoft\SettingSyncHost.exe\WinMSIPC"
-                        if((test-path $basePath) -eq $False){
-                            log -text "userLookupMode is set to 3, but the registry path $basePath does not exist! Using method 3" -fout 
-                            $objUser = New-Object System.Security.Principal.NTAccount($Env:USERNAME)
-                            $strSID = ($objUser.Translate([System.Security.Principal.SecurityIdentifier])).Value
-                            $basePath = "HKLM:\SOFTWARE\Microsoft\IdentityStore\Cache\$strSID\IdentityCache\$strSID"
-                            if((test-path $basePath) -eq $False){
-                                log -text "userLookupMode is set to 3, but the registry path $basePath does not exist! All lookup modes exhausted, exiting" -fout
-                                abort_OM   
-                            }
-                            $userId = (Get-ItemProperty -Path $basePath -Name UserName).UserName
-                        }else{
-                            $userId = @(Get-ChildItem $basePath)[0].Name | Split-Path -Leaf
-                        }
-                    }else{
-                        $basePath = @(Get-ChildItem $basePath)[0].Name -Replace "HKEY_CURRENT_USER","HKCU:"
-                        $userId = (Get-ItemProperty -Path $basePath -Name UserId).UserId
+                        log -text "userLookupMode is set to 3, but the registry path $basePath does not exist! All lookup modes exhausted, exiting" -fout
+                        abort_OM   
                     }
+                    $userId = (Get-ItemProperty -Path $basePath -Name UserName).UserName
                     if($userId -and $userId -like "*@*"){
                         log -text "userLookupMode is set to 3, we detected $userId in $basePath"
                         $userUPN = ($userId).ToLower()
