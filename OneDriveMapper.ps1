@@ -2551,7 +2551,7 @@ function getUserLogin{
             3 {
             #Windows 10
                  try{
-                    log -text "userLookupMode is set to 3, using SID discovery method" -fout
+                    log -text "userLookupMode is set to 3, using SID discovery method"
                     $objUser = New-Object System.Security.Principal.NTAccount($Env:USERNAME)
                     $strSID = ($objUser.Translate([System.Security.Principal.SecurityIdentifier])).Value
                     $basePath = "HKLM:\SOFTWARE\Microsoft\IdentityStore\Cache\$strSID\IdentityCache\$strSID"
@@ -3516,7 +3516,7 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
         }
         #update progress bar
         if($showProgressBar) {
-            $script:progressbar1.Value += 5
+            $script:progressbar1.Value += 2
             $script:form1.Refresh()
         }
         log -text "SpO cookie generated"
