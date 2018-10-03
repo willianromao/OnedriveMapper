@@ -2085,18 +2085,9 @@ function loginV2(){
 
         }
         $nextURL = returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`""
-        $wctx = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"wctx`" value=`""
-        if($wctx -ne -1){
-            $wctx = "$($wctx)&amp;LoginOptions=1"
-            $wctx = [System.Web.HttpUtility]::htmldecode($wctx)
-            $wctx = [System.Web.HttpUtility]::UrlEncode($wctx)
-            $wctx = "&wctx=$($wctx)"
-        }else{
-            $wctx = $Null
-        }
         $wResult = [System.Web.HttpUtility]::HtmlDecode($wResult)
         $wResult = [System.Web.HttpUtility]::UrlEncode($wResult)
-        $body = "wa=wsignin1.0&wresult=$wResult"
+        $body = "wa=wsignin1.0&wresult=$wResult&amp;LoginOptions=1"
         $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"
         
         #check for double redirect which will happen if ADFS is itself federated
@@ -2104,18 +2095,9 @@ function loginV2(){
 		if($wResult -ne -1){
 			$nextURL = returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`""
 			log -text "Federation Services has a second wresult step.." -warning
-			$wctx = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"wctx`" value=`""
-			if($wctx -ne -1){
-				$wctx = "$($wctx)&amp;LoginOptions=1"
-				$wctx = [System.Web.HttpUtility]::htmldecode($wctx)
-				$wctx = [System.Web.HttpUtility]::UrlEncode($wctx)
-				$wctx = "&wctx=$($wctx)"
-			}else{
-				$wctx = $Null
-			}
 			$wResult = [System.Web.HttpUtility]::HtmlDecode($wResult)
 			$wResult = [System.Web.HttpUtility]::UrlEncode($wResult)
-			$body = "wa=wsignin1.0&wresult=$wResult"
+			$body = "wa=wsignin1.0&wresult=$wResult&amp;LoginOptions=1"
 			$res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*" 
 		}
 
