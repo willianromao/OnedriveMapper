@@ -2283,7 +2283,7 @@ function login(){
             return $True             
         }
         $pwdAttempts = 0
-        while($pwdAttempts -lt 3){
+        while($pwdAttempts -lt 4){
             $pwdAttempts++
             try{ 
                 $checkBox = getElementById -id "idChkBx_PWD_KMSI0Pwd"
@@ -2298,7 +2298,7 @@ function login(){
             }
             try{
                 checkIfMFASetupIsRequired
-                if($pwdAttempts -gt 1){
+                if($pwdAttempts -gt 2){
                     if($userLookupMode -eq 4){
                         $userName = (retrieveLogin -forceNewUsername)
                         (getElementById -id "i0116").value = $userName      
