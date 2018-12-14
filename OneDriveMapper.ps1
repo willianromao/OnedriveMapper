@@ -2078,7 +2078,14 @@ function loginV2(){
                         break
                     }
                 }
-                $body = "UserName=$userName&Password=$passwordEnc&Kmsi=true&AuthMethod=FormsAuthentication"
+                #handle ESET plugin
+                if($res.Content.IndexOf("esa_message_push") -ne -1){
+                    $nextURL = returnEnclosedFormValue -res $res -searchString "<form id=`"options`"  method=`"post`" action=`""
+                    $context = returnEnclosedFormValue -res $res -searchString "<input id=`"context`" type=`"hidden`" name=`"Context`" value=`""
+                    $body = "AuthMethod=esa_adfs_adapter&Context=$context&submit_auto="
+                }else{
+                    $body = "UserName=$userName&Password=$passwordEnc&Kmsi=true&AuthMethod=FormsAuthentication"
+                }
                 $res = JosL-WebRequest -url $nextURL -Method POST -body $body
                 $attempts++
             }
