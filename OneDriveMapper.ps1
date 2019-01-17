@@ -22,7 +22,7 @@ param(
 $version = "3.19"
 
 ####MANDATORY MANUAL CONFIGURATION
-$authMethod            = "native"                  #Uses IE automation (old method) when set to ie, uses new native method when set to 'native'
+$authMethod            = "native"                  #Uses AzureAD integrated when set to azure, Uses IE automation (old method) when set to ie, uses new native method when set to 'native'
 $O365CustomerName      = "ogd"          #This should be the name of your tenant (example, ogd as in ogd.onmicrosoft.com) 
 $debugmode             = $False                    #Set to $True for debugging purposes. You'll be able to see the script navigate in Internet Explorer if you're using IE auth mode
 $userLookupMode        = 3                         #1 = Active Directory UPN, 2 = Active Directory Email, 3 = Azure AD Joined Windows 10, 4 = query user for his/her login, 5 = lookup by registry key, 6 = display full form (ask for both username and login if no cached versions can be found), 7 = whoami /upn
@@ -2763,7 +2763,10 @@ if($showConsoleOutput -eq $False){
 }
 
 if($allowFallbackMode -and $fallBackMode){
-    if($authMethod -eq "native"){
+    if($authMethod -eq "azure"){
+        $authMethod = "native"
+        log -text "detected we are running in fallback mode, switching from azure to native" -warning
+    }elseif($authMethod -eq "native"){
         $authMethod = "ie"
         log -text "detected we are running in fallback mode, switching from native to ie" -warning
     }else{
@@ -3173,10 +3176,12 @@ if($showProgressBar) {
 if($authMethod -ne "native"){
     #navigate to the base URL of the tenant's Sharepoint to check if it exists 
     try{ 
-        $script:ie.navigate("https://login.microsoftonline.com/logout.srf")
-        waitForIE
-        Start-Sleep -s 1
-        waitForIE
+        if($authMethod -eq "IE"){
+            $script:ie.navigate("https://login.microsoftonline.com/logout.srf")
+            waitForIE
+            Start-Sleep -s 1
+            waitForIE
+        }
         $script:ie.navigate($o365loginURL) 
         waitForIE
         Start-Sleep -s 1
@@ -3194,12 +3199,13 @@ if($authMethod -ne "native"){
     } 
  
     checkIfCOMObjectIsHealthy
-
-    if($script:ie.LocationURL.StartsWith($o365loginURL)){
-        log -text "Starting logon process at: $($script:ie.LocationURL)" 
-    }else{
-        log -text "For some reason we're not at the logon page, even though we tried to browse there, we'll probably fail now but let's try one final time. URL: $($script:ie.LocationURL)" -fout
-        $script:ie.navigate($o365loginURL) 
+    if($authMethod -eq "IE"){
+        if($script:ie.LocationURL.StartsWith($o365loginURL)){
+            log -text "Starting logon process at: $($script:ie.LocationURL)" 
+        }else{
+            log -text "For some reason we're not at the logon page, even though we tried to browse there, we'll probably fail now but let's try one final time. URL: $($script:ie.LocationURL)" -fout
+            $script:ie.navigate($o365loginURL) 
+        }
     }
 }
 
@@ -3210,7 +3216,7 @@ if($showProgressBar) {
 }
 
 
-if($authMethod -ne "native"){
+if($authMethod -eq "IE"){
     #Check and log if Explorer is running 
     $explorerStatus = Get-ProcessWithOwner explorer 
     if($explorerStatus -eq 0){ 
@@ -3236,7 +3242,9 @@ if($authMethod -ne "native"){
     waitForIE
     do {Start-Sleep -m 100} until ($script:ie.ReadyState -eq 4 -or $script:ie.ReadyState -eq 0)  
     Start-Sleep -s 2
-}else{
+}
+
+if($authMethod -eq "native"){
     $res = loginV2
     if($res -eq $False){
         if($allowFallbackMode -and !$fallbackMode){
@@ -3248,6 +3256,15 @@ if($authMethod -ne "native"){
         }
     }else{
         log -text "Login succeeded"
+    }
+}
+
+if($authMethod -eq "azure"){
+    if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs) -eq $True){
+        #we've been logged in
+        log -text "login detected, login function succeeded, final url: $($script:ie.LocationURL)"              
+    }else{
+        log -text "azure native login failed, ensure that if you start Internet Explorer and browse to portal.office.com that you're automatically logged in. If this is not the case, you cannot use 'azure' as login mode because your workstation does not have SSO capabilities to O365" -fout
     }
 }
 
