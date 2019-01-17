@@ -1631,6 +1631,7 @@ function handleO365Redirect{
     Param(
         $res
     )
+
     $redirectFollowed = $False
     $nextURL = returnEnclosedFormValue -res $res -searchString "form method=`"POST`" name=`"hiddenform`" action=`""
     $nextURL = [System.Web.HttpUtility]::HtmlDecode($nextURL)
@@ -1663,6 +1664,23 @@ function handleO365Redirect{
             Throw 
         }    
     }    
+
+    $nextURL = returnEnclosedFormValue -res $res -searchString "name=`"hiddenform`" action=`"" -decode
+    $nextURL = [System.Web.HttpUtility]::HtmlDecode($nextURL)
+    $ctx = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"ctx`" value=`""
+    $flowtoken = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"flowtoken`" value=`""
+    if($ctx -ne -1){
+        $body = "ctx=$([System.Web.HttpUtility]::UrlEncode($ctx))&flowtoken=$([System.Web.HttpUtility]::UrlEncode($flowtoken))"                
+        log -text "Detected DeviceAuth redirect, following"
+        try{
+            $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"       
+            $redirectFollowed=$True
+        }catch{
+            log -text "Error detected while following DeviceAuth redirect, check the FAQ for help" -fout
+            Throw 
+        }    
+    }   
+
     return $res,$redirectFollowed     
 }
 function loginV2(){
@@ -2126,7 +2144,7 @@ function loginV2(){
 
     }
 
-    ##AT this point, authentication should have succeeded, but redirects need to be followed an may differ per type of tenant
+    ##AT this point, authentication should have succeeded, but redirects need to be followed and may differ per type of tenant
 
     #some customers have a redirect active to Onedrive for Business, check if we're already there and return true if so
     if($res.rawResponse.ResponseUri.OriginalString.IndexOf("/personal/") -ne -1){
@@ -2146,7 +2164,7 @@ function loginV2(){
 
     #MFA check
     try{
-        $res = handleMFArequest -res $res -clientId $clientId
+        $res = handleMFArequest -res $res[0] -clientId $clientId
         log -text "MFA challenge completed"
     }catch{
         log -text "MFA check result: $_"
@@ -2154,14 +2172,14 @@ function loginV2(){
 
     #sometimes additional redirects are needed, fail if redirects fail, succeed if none are detected or if they are followed
     try{
-        $res = handleO365Redirect -res $res[0]
+        $res = handleO365Redirect -res $res
     }catch{
         return $False
     }    
 
     #MFA check
     try{
-        $res = handleMFArequest -res $res -clientId $clientId
+        $res = handleMFArequest -res $res[0] -clientId $clientId
         log -text "MFA challenge completed"
     }catch{
         log -text "MFA check result: $_"
