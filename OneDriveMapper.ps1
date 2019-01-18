@@ -3150,11 +3150,6 @@ if($authMethod -ne "native"){
         $script:ie.visible = $debugmode 
     }catch{ 
         log -text "failed to start Internet Explorer COM Object, check user permissions or already running instances. Will retry in 30 seconds. $($Error[0])" -fout
-        $COMFailed = $True
-    } 
-
-    #retry above if failed
-    if($COMFailed){
         Start-Sleep -s 30
         try{ 
             $script:ie = new-object -com InternetExplorer.Application -ErrorAction Stop
@@ -3164,7 +3159,7 @@ if($authMethod -ne "native"){
             $errorsForUser += "Mapping cannot continue because we could not start your browser"
             abort_OM 
         }
-    }
+    } 
 }
 
 #update progress bar
@@ -3188,7 +3183,7 @@ if($authMethod -ne "native"){
     }catch{ 
         log -text "Failed to browse to the Office 365 Sign in page, this is a fatal error $($Error[0])`n" -fout
         $errorsForUser += "Mapping cannot continue because we could not contact Office 365`n"
-        abort_OM 
+        abort_OM
     } 
  
     #check if we got a 404 not found 
@@ -3260,6 +3255,10 @@ if($authMethod -eq "native"){
 }
 
 if($authMethod -eq "azure"){
+    $script:ie.navigate($baseURL) 
+    waitForIE
+    do {Start-Sleep -m 100} until ($script:ie.ReadyState -eq 4 -or $script:ie.ReadyState -eq 0)  
+    Start-Sleep -s 2
     if((checkIfAtO365URL -userUPN $userUPN -finalURLs $finalURLs) -eq $True){
         #we've been logged in
         log -text "login detected, login function succeeded, final url: $($script:ie.LocationURL)"              
