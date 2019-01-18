@@ -19,7 +19,7 @@ param(
     [Switch]$hideConsole
 )
 
-$version = "3.20"
+$version = "3.19"
 
 ####MANDATORY MANUAL CONFIGURATION
 $authMethod            = "native"                  #Uses AzureAD integrated when set to azure, Uses IE automation (old method) when set to ie, uses new native method when set to 'native'
