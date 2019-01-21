@@ -22,7 +22,7 @@ param(
 $version = "3.20"
 
 ####MANDATORY MANUAL CONFIGURATION
-$authMethod            = "native"                  #Uses AzureAD integrated when set to azure, Uses IE automation (old method) when set to ie, uses new native method when set to 'native'
+$authMethod            = "native"                  #Uses AzureAD integrated when set to "azure", Uses IE automation (old method) when set to "ie", uses new native method when set to "native"
 $O365CustomerName      = "ogd"          #This should be the name of your tenant (example, ogd as in ogd.onmicrosoft.com) 
 $debugmode             = $False                    #Set to $True for debugging purposes. You'll be able to see the script navigate in Internet Explorer if you're using IE auth mode
 $userLookupMode        = 3                         #1 = Active Directory UPN, 2 = Active Directory Email, 3 = Azure AD Joined Windows 10, 4 = query user for his/her login, 5 = lookup by registry key, 6 = display full form (ask for both username and login if no cached versions can be found), 7 = whoami /upn
@@ -138,13 +138,7 @@ $O365CustomerName = $O365CustomerName.ToLower()
 #for people that don't RTFM, fix wrongly entered customer names:
 $O365CustomerName = $O365CustomerName -Replace ".onmicrosoft.com",""
 $forceUserName = $forceUserName.ToLower() 
-$finalURLs = @()
-$finalURLs += "https://portal.office.com"
-$finalURLs += "https://outlook.office365.com"
-$finalURLs += "https://outlook.office.com"
-$finalURLs += "https://$($O365CustomerName)-my.sharepoint.com"
-$finalURLs += "https://$($O365CustomerName).sharepoint.com"
-$finalURLs += "https://www.office.com"
+$finalURLs = @("https://portal.office.com","https://outlook.office365.com","https://outlook.office.com","https://$($O365CustomerName)-my.sharepoint.com","https://$($O365CustomerName).sharepoint.com","https://www.office.com")
 
 function log{
     param (
@@ -1665,7 +1659,7 @@ function handleO365Redirect{
         }    
     }    
 
-    $nextURL = returnEnclosedFormValue -res $res -searchString "name=`"hiddenform`" action=`"" -decode
+    $nextURL = returnEnclosedFormValue -res $res -searchString "form method=`"POST`" name=`"hiddenform`" action=`""
     $nextURL = [System.Web.HttpUtility]::HtmlDecode($nextURL)
     $ctx = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"ctx`" value=`""
     $flowtoken = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"flowtoken`" value=`""
@@ -3438,7 +3432,28 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
             }catch{
                 log -text "Failed to retrieve cookie for Onedrive for Business: $($Error[0])" -fout
             }
-            $res = handleSpoReAuth -res $res
+
+            #follow first 1-2 redirects, fail if none are detected or if redirects are detected but fail (abnormal flow)
+            try{
+                $res = (handleO365Redirect -res $res)[0]
+            }catch{
+                return $False
+            }
+
+            #MFA check
+            try{
+                $res = handleMFArequest -res $res[0] -clientId $clientId
+                log -text "MFA challenge completed"
+            }catch{
+                log -text "MFA check result: $_"
+            }    
+
+            #sometimes additional redirects are needed, fail if redirects fail, succeed if none are detected or if they are followed
+            try{
+                $res = (handleO365Redirect -res $res)[0]
+            }catch{
+                return $False
+            } 
 
             $stillProvisioning = $True
             $timeWaited = 0
@@ -3508,7 +3523,29 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
                 $desiredMappings[$count].alreadyMapped = $True
                 continue
             }
-            $res = handleSpoReAuth -res $res
+
+            #follow first 1-2 redirects, fail if none are detected or if redirects are detected but fail (abnormal flow)
+            try{
+                $res = (handleO365Redirect -res $res)[0]
+            }catch{
+                return $False
+            }
+
+            #MFA check
+            try{
+                $res = handleMFArequest -res $res[0] -clientId $clientId
+                log -text "MFA challenge completed"
+            }catch{
+                log -text "MFA check result: $_"
+            }    
+
+            #sometimes additional redirects are needed, fail if redirects fail, succeed if none are detected or if they are followed
+            try{
+                $res = (handleO365Redirect -res $res)[0]
+            }catch{
+                return $False
+            } 
+
             if($desiredMappings[$count]."mapOnlyForSpecificGroup" -eq "favoritesPlaceholder"){
                 try{
                     try{
