@@ -1643,11 +1643,17 @@ function handleO365Redirect{
     $nextURL = [System.Web.HttpUtility]::HtmlDecode($nextURL)
     $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
     $id_token = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"id_token`" value=`""
-    $state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"state`" value=`""
     $session_state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"session_state`" value=`""
+    if($nextURL -like "*-my.sharepoint.com*"){
+        $correlation_id = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"correlation_id`" value=`""
+        $body = "code=$([System.Web.HttpUtility]::UrlEncode($code))&id_token=$([System.Web.HttpUtility]::UrlEncode($id_token))&correlation_id=$([System.Web.HttpUtility]::UrlEncode($correlation_id))&session_state=$([System.Web.HttpUtility]::UrlEncode($session_state))"
+    }else{
+        $state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"state`" value=`""
+        $body = "code=$([System.Web.HttpUtility]::UrlEncode($code))&id_token=$([System.Web.HttpUtility]::UrlEncode($id_token))&state=$([System.Web.HttpUtility]::UrlEncode($state))&session_state=$([System.Web.HttpUtility]::UrlEncode($session_state))"
+    }
+       
     if($nextURL -ne -1 -and $id_token -ne -1){
         log -text "Detected a id_token redirect to Office.com, following..."
-        $body = "code=$([System.Web.HttpUtility]::UrlEncode($code))&id_token=$([System.Web.HttpUtility]::UrlEncode($id_token))&state=$([System.Web.HttpUtility]::UrlEncode($state))&session_state=$([System.Web.HttpUtility]::UrlEncode($session_state))"
         try{
             $res = New-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"  
             $redirectFollowed=$True
@@ -1856,6 +1862,12 @@ function loginV2(){
                     }catch{$Null}
                 }
             }
+
+            if($res.rawResponse.ResponseUri.AbsoluteUri.StartsWith("https://device.login.microsoftonline.com")){
+                log -text "Deviceauth encountered, breaking auth loop"
+                break
+            }
+
             $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
             if($res.rawResponse.ResponseUri.AbsoluteUri.StartsWith("https://login.microsoftonline.com") -and $code -ne -1){
                 #we reached a landing page, but there is a redirect left, which is handled later in this script
