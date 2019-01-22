@@ -2517,7 +2517,7 @@ function addSiteToIEZoneThroughRegistry{
             $components += $subDomainString
             $components += $old[$count-2]
             $components += $old[$count-1]    
-        }
+        } 
         if($count -gt 2){
             $res = New-Item "hkcu:\software\microsoft\windows\currentversion\internet settings\zonemap\domains\$($components[1]).$($components[2])" -ErrorAction SilentlyContinue 
             $res = New-Item "hkcu:\software\microsoft\windows\currentversion\internet settings\zonemap\domains\$($components[1]).$($components[2])\$($components[0])" -ErrorAction SilentlyContinue
@@ -2974,6 +2974,13 @@ if((checkRegistryKeyValue -basePath "HKLM:\Software\Policies\Microsoft\Windows\C
     log -text "NOTICE: $($O365CustomerName).sharepoint.com found in IE Trusted Sites on machine level (through GPO)"  
     $publicZoneFound = $True    
 }
+
+#add an entry to prevent file copy paste warnings
+try{
+    $res = New-Item "hkcu:\software\microsoft\windows\currentversion\internet settings\zonemap\domains\sharepoint.com@SSL" -ErrorAction SilentlyContinue 
+    $res = New-Item "hkcu:\software\microsoft\windows\currentversion\internet settings\zonemap\domains\sharepoint.com@SSL\$($O365CustomerName)" -ErrorAction SilentlyContinue
+    $res = New-ItemProperty "hkcu:\software\microsoft\windows\currentversion\internet settings\zonemap\domains\sharepoint.com@SSL\$($O365CustomerName)" -Name "file" -value 1 -ErrorAction SilentlyContinue
+}catch{$Null}
 
 #log results, try to automatically add trusted sites to user trusted sites if not yet added
 if($publicZoneFound -eq $False){
