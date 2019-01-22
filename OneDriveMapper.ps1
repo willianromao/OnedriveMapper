@@ -644,7 +644,7 @@ function New-WebRequest{
             }
 
             #add device auth certificate
-            if($request.url.startsWith("https://device.login.microsoftonline.com")){
+            if($url.startsWith("https://device.login.microsoftonline.com")){
                 try{
                     $cert = dir Cert:\LocalMachine\My\ | where { $_.Issuer -match "CN=MS-Organization-Access" }
                     $request.ClientCertificates.AddRange($cert)
@@ -1690,23 +1690,17 @@ function handleO365Redirect{
     return $res,$redirectFollowed     
 }
 function loginV2(){
-    Param(
-        $tryAgainRes
-    )
     $script:cookiejar = New-Object System.Net.CookieContainer
     log -text "Login attempt using native method at tenant $O365CustomerName"
     $uidEnc = [System.Web.HttpUtility]::UrlEncode($userUPN)
     #stel allereerste cookie in om websessie te beginnen
     try{
         if($adfsSmartLink){
+            log -text "Using ADFS Smartlink"
             $res = New-WebRequest -url $adfsSmartLink -Method Get
             $mode = "Federated"
         }else{
-            if(!$tryAgainRes) {
-                $res = New-WebRequest -url https://login.microsoftonline.com -Method Get
-            }else{
-                $res = $tryAgainRes
-            }
+            $res = New-WebRequest -url https://login.microsoftonline.com -Method Get
             $stsRequest = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"ctx`" value=`""
             if($stsRequest -eq -1){ #we're seeing a new forward method, so we should find the login URL Microsoft suggests
                 log -text "no STS request detected in response, checking for urlLogin parameter..."
