@@ -331,7 +331,7 @@ function handleSpoReAuth{
         }
         if($nextURL.Length -gt 10){
             log -text "Retrieving Sharepoint cookie step 2 at $nextURL"
-            $res = JosL-WebRequest -url $nextURL -Method POST -body $body
+            $res = New-WebRequest -url $nextURL -Method POST -body $body
         }
         return $res
     }catch{
@@ -365,7 +365,7 @@ function handleMFArequest{
     $body = @{"AuthMethodId"=$mfaMethod;"Method"="BeginAuth";"ctx"=$ctx;"flowToken"=$sFT}
     $customHeaders = @{"canary" = $apiCanary;"hpgrequestid" = $res.Headers["x-ms-request-id"];"client-request-id"=$clientId;"hpgid"=1114;"hpgact"=2000}
     try{
-        $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/SAS/BeginAuth" -Method POST -customHeaders $customHeaders -body ($body | ConvertTo-Json) -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/json"
+        $res = New-WebRequest -url "https://login.microsoftonline.com/common/SAS/BeginAuth" -Method POST -customHeaders $customHeaders -body ($body | ConvertTo-Json) -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/json"
         $result = $res.Content | convertfrom-json
         $sFT = $result.FlowToken
         $ctx = $result.Ctx
@@ -383,7 +383,7 @@ function handleMFArequest{
             Throw "Waited longer than 60 seconds for MFA request to be validated, aborting"
         }
         try{
-            $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/SAS/EndAuth" -Method POST -customHeaders $customHeaders -body ($body | ConvertTo-Json) -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/json"
+            $res = New-WebRequest -url "https://login.microsoftonline.com/common/SAS/EndAuth" -Method POST -customHeaders $customHeaders -body ($body | ConvertTo-Json) -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/json"
             $result = $res.Content | convertfrom-json
             if($result.Success){
                 break
@@ -408,7 +408,7 @@ function handleMFArequest{
             $type=1
         }
         $body = "type=$type&request=$ctx&mfaAuthMethod=$mfaAuthMethod&canary=$canary&login=$userUPN&flowToken=$sFT&hpgrequestid=$($customHeaders["hpgrequestid"])&sacxt=&i2=&i17=&i18=&i19=7406"
-        $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/SAS/ProcessAuth" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri
+        $res = New-WebRequest -url "https://login.microsoftonline.com/common/SAS/ProcessAuth" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri
         return $res
     }catch{
         Throw "SAS ProcessAuth failure"
@@ -595,7 +595,7 @@ function ConvertFrom-Json20([object] $item){
     return ,$ps_js.DeserializeObject($item)
 }
 
-function JosL-WebRequest{
+function New-WebRequest{
     Param(
         $url,
         $method="GET",
@@ -642,6 +642,18 @@ function JosL-WebRequest{
                 }                
                 $request.ClientCertificates.AddRange($userCert)
             }
+
+            #add device auth certificate
+            if($request.url.startsWith("https://device.login.microsoftonline.com")){
+                try{
+                    $cert = dir Cert:\LocalMachine\My\ | where { $_.Issuer -match "CN=MS-Organization-Access" }
+                    $request.ClientCertificates.AddRange($cert)
+                    log -text "detected device authentication prompt and used $($cert.Subject)"
+                }catch{
+                    log -text "detected device authentication prompt and failed to use/retrieve certificate" -fout
+                }
+            }
+
             $request.TimeOut = 10000
             $request.Method = $method
             $request.Referer = $referer
@@ -795,7 +807,7 @@ function versionCheck{
     $apiURL = "http://om.lieben.nu/lieben_api.php?script=OnedriveMapper&version=$currentVersion"
     $apiKeyword = "latestOnedriveMapperVersion"
     try{
-        $result = JosL-WebRequest -Url $apiURL
+        $result = New-WebRequest -Url $apiURL
     }catch{
         Throw "Failed to connect to API url for version check: $apiURL $($Error[0])"
     }
@@ -1510,7 +1522,7 @@ function checkIfAtFhmPage{
     }else{
         $body = "t=$value"
         try{
-            $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"       
+            $res = New-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"       
             $value = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"t`" id=`"t`" value=`""
             if($value -ne -1){
                 return $res
@@ -1637,7 +1649,7 @@ function handleO365Redirect{
         log -text "Detected a id_token redirect to Office.com, following..."
         $body = "code=$([System.Web.HttpUtility]::UrlEncode($code))&id_token=$([System.Web.HttpUtility]::UrlEncode($id_token))&state=$([System.Web.HttpUtility]::UrlEncode($state))&session_state=$([System.Web.HttpUtility]::UrlEncode($session_state))"
         try{
-            $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"  
+            $res = New-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"  
             $redirectFollowed=$True
         }catch{
             log -text "Error detected while following id_token redirect, check the FAQ for help" -fout
@@ -1651,7 +1663,7 @@ function handleO365Redirect{
         $body = "t=$value"                
         log -text "Detected fmHF redirect, following"
         try{
-            $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"       
+            $res = New-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"       
             $redirectFollowed=$True
         }catch{
             log -text "Error detected while following fmHF redirect, check the FAQ for help" -fout
@@ -1667,7 +1679,7 @@ function handleO365Redirect{
         $body = "ctx=$([System.Web.HttpUtility]::UrlEncode($ctx))&flowtoken=$([System.Web.HttpUtility]::UrlEncode($flowtoken))"                
         log -text "Detected DeviceAuth redirect, following"
         try{
-            $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"       
+            $res = New-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"       
             $redirectFollowed=$True
         }catch{
             log -text "Error detected while following DeviceAuth redirect, check the FAQ for help" -fout
@@ -1687,11 +1699,11 @@ function loginV2(){
     #stel allereerste cookie in om websessie te beginnen
     try{
         if($adfsSmartLink){
-            $res = JosL-WebRequest -url $adfsSmartLink -Method Get
+            $res = New-WebRequest -url $adfsSmartLink -Method Get
             $mode = "Federated"
         }else{
             if(!$tryAgainRes) {
-                $res = JosL-WebRequest -url https://login.microsoftonline.com -Method Get
+                $res = New-WebRequest -url https://login.microsoftonline.com -Method Get
             }else{
                 $res = $tryAgainRes
             }
@@ -1702,7 +1714,7 @@ function loginV2(){
                 try{
                     if($urlLogin.StartsWith("https://")){
                         log -text "urlLogin parameter found, following once...."
-                        $res = JosL-WebRequest -url $urlLogin -Method GET            
+                        $res = New-WebRequest -url $urlLogin -Method GET            
                     }
                 }catch{$Null}
             }
@@ -1723,11 +1735,11 @@ function loginV2(){
             $JSON = @{"username"="$userUPN";"isOtherIdpSupported"=$true;"checkPhones"=$false;"isRemoteNGCSupported"=$false;"isCookieBannerShown"=$false;"isFidoSupported"=$false;"originalRequest"="$cstsRequest"}
             $JSON = ConvertTo-Json20 -item $JSON
             try{
-                $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/GetCredentialType" -Method POST -body $JSON -customHeaders $customHeaders -referer $res.rawResponse.ResponseUri.AbsoluteUri
+                $res = New-WebRequest -url "https://login.microsoftonline.com/common/GetCredentialType" -Method POST -body $JSON -customHeaders $customHeaders -referer $res.rawResponse.ResponseUri.AbsoluteUri
                 log -text "New realm discovery method succeeded"
             }catch{
                 log -text "New realm discovery method failed" -warning
-                $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/userrealm?user=$uidEnc&api-version=2.1&stsRequest=$stsRequest&checkForMicrosoftAccount=false" -Method GET
+                $res = New-WebRequest -url "https://login.microsoftonline.com/common/userrealm?user=$uidEnc&api-version=2.1&stsRequest=$stsRequest&checkForMicrosoftAccount=false" -Method GET
                 log -text "Old realm discovery method succeeded"
             }
         }
@@ -1775,7 +1787,7 @@ function loginV2(){
             $nextURL2 = "https://autologon.microsoftazuread-sso.com/$($userUPN.Split("@")[1])/winauth/sso?desktopsso=true&isAdalRequest=False&client-request-id=$clientId"
             log -text "Authentication target: $nextURL2"
             try{
-                $res = JosL-WebRequest -url $nextURL2 -trySSO 1 -method GET -accept "text/html, application/xhtml+xml, image/jxr, */*" -referer "https://login.microsoftonline.com/" 
+                $res = New-WebRequest -url $nextURL2 -trySSO 1 -method GET -accept "text/html, application/xhtml+xml, image/jxr, */*" -referer "https://login.microsoftonline.com/" 
                 log -text "Azure AD SSO response received: $($res.Content)"
                 $ssoToken = $res.Content
             }catch{
@@ -1785,7 +1797,7 @@ function loginV2(){
             $customHeaders = @{"canary" = $apiCanary;"hpgid" = "1104";"hpgact" = "1800";"client-request-id"=$clientId}
             $JSON = @{"resultCode"="0";"ssoDelay"="200";"log"=$Null}
             $JSON = ConvertTo-Json20 -item $JSON
-            $res = JosL-WebRequest -url $nextURL2 -method POST -body $JSON -customHeaders $customHeaders
+            $res = New-WebRequest -url $nextURL2 -method POST -body $JSON -customHeaders $customHeaders
             $JSON = ConvertFrom-Json20 -item $res.Content
             if($JSON.apiCanary){
                 log -text "AADC SSO step 1 completed"
@@ -1819,7 +1831,7 @@ function loginV2(){
                     $body = "i13=0&login=$userUPN&loginfmt=$userUPN&type=11&LoginOptions=3&passwd=$passwordEnc&ps=2&canary=$newCanary&ctx=$cstsRequest&flowToken=$sFT&NewUser=1&fspost=0&i21=0&CookieDisclosure=0&i2=1&i19=41303"
                 }
                 log -text "authenticating using new managed mode as $userUPN"
-                $res = JosL-WebRequest -url "https://login.microsoftonline.com/common/login" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri        
+                $res = New-WebRequest -url "https://login.microsoftonline.com/common/login" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri        
             }catch{
                 log -text "error received while posting to login page" -fout
             }
@@ -1846,7 +1858,7 @@ function loginV2(){
                     $body = "LoginOptions=1&ctx=$cstsRequest&flowToken=$sFT&canary=$newCanary&DontShowAgain=true&i19=2759"
                     try{
                         log -text "sending cookie persistence request"
-                        $res = JosL-WebRequest -url "https://login.microsoftonline.com/kmsi" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri        
+                        $res = New-WebRequest -url "https://login.microsoftonline.com/kmsi" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri        
                     }catch{$Null}
                 }
             }
@@ -1870,7 +1882,7 @@ function loginV2(){
             $nextURL2 = "https://autologon.microsoftazuread-sso.com/$($jsonRealmConfig.DomainName)/winauth/sso?desktopsso=true&isAdalRequest=False&client-request-id=$clientId"
             log -text "Authentication target: $nextURL2"
             try{
-                $res = JosL-WebRequest -url $nextURL2 -trySSO 1 -method GET -accept "text/html, application/xhtml+xml, image/jxr, */*" -referer "https://login.microsoftonline.com/" 
+                $res = New-WebRequest -url $nextURL2 -trySSO 1 -method GET -accept "text/html, application/xhtml+xml, image/jxr, */*" -referer "https://login.microsoftonline.com/" 
                 log -text "Azure AD SSO response received: $($res.Content)"
                 $ssoToken = $res.Content
             }catch{
@@ -1880,7 +1892,7 @@ function loginV2(){
             $customHeaders = @{"canary" = $apiCanary;"hpgid" = "1002";"hpgact" = "2101";"client-request-id"=$clientId}
             $JSON = @{"resultCode"="107";"ssoDelay"="200";"log"=$Null}
             $JSON = ConvertTo-Json20 -item $JSON
-            $res = JosL-WebRequest -url $nextURL2 -method POST -body $JSON -customHeaders $customHeaders
+            $res = New-WebRequest -url $nextURL2 -method POST -body $JSON -customHeaders $customHeaders
             $JSON = ConvertFrom-Json20 -item $res.Content
             if($JSON.apiCanary){
                 log -text "AADC SSO step 1 completed"
@@ -1918,7 +1930,7 @@ function loginV2(){
             }
             log -text "Requesting session..."
             try{
-                $res = JosL-WebRequest -url $nextURL -Method POST -body $body
+                $res = New-WebRequest -url $nextURL -Method POST -body $body
             }catch{
                 log -text "failure at logon attempt: $($Error[0])" -fout
                 continue
@@ -1969,11 +1981,11 @@ function loginV2(){
                     $nextURL = "https://login.microsoftonline.com/common/onpremvalidation/Poll"
                     $JSON = @{"flowToken"=$flowToken;"ctx"=$stsRequest}
                     $JSON = ConvertTo-Json20 -item $JSON
-                    $res = JosL-WebRequest -url $nextURL -Method POST -body $JSON -customHeaders $customHeaders
+                    $res = New-WebRequest -url $nextURL -Method POST -body $JSON -customHeaders $customHeaders
                     $response = ConvertFrom-Json20 -item $res.Content
                     $body = "flowToken=$($response.flowToken)&ctx=$stsRequest"
                     $nextURL =  "https://login.microsoftonline.com/common/onpremvalidation/End"
-                    $res = JosL-WebRequest -url $nextURL -Method POST -body $body
+                    $res = New-WebRequest -url $nextURL -Method POST -body $body
                     log -text "AADC SSO step 2 completed"
                 }catch{
                     log -text "Error trying to request AzureAD SSO token: $($Error[0])" -fout
@@ -2005,7 +2017,7 @@ function loginV2(){
         log -text "Contacting Federation server and attempting Single SignOn..."
         if(!$adfsSmartLink){
             try{
-                $res = JosL-WebRequest -url $nextURL -Method GET -referer $res.rawResponse.ResponseUri.AbsoluteUri
+                $res = New-WebRequest -url $nextURL -Method GET -referer $res.rawResponse.ResponseUri.AbsoluteUri
             }catch{
                 log -text "Error received from ADFS server: $($Error[0])" -fout
                 return $False
@@ -2022,7 +2034,7 @@ function loginV2(){
             $RelayState = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"RelayState`" value=`""
             $body = "SAMLRequest=$SAMLRequest&RelayState=$RelayState"
             try{
-                $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri
+                $res = New-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri
             }catch{
                 log -text "Error received from F5 server: $($Error[0])" -fout
                 return $False
@@ -2037,7 +2049,7 @@ function loginV2(){
                 }else{
                     log -text "Retrieved forward code from F5 server, forwarding to $nextURL"
                 }
-                $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri
+                $res = New-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri
             }catch{
                 log -text "Error received from F5 server: $($Error[0])" -fout
             }
@@ -2054,7 +2066,7 @@ function loginV2(){
                 }else{
                     Throw "No (readable) SAML response retrieved from F5! Use Fiddler to debug"
                 }               
-                $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri
+                $res = New-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri
             }catch{
                 log -text "Error received when getting SAML response from F5 server, script will likely fail: $($Error[0])" -fout
             }
@@ -2098,7 +2110,7 @@ function loginV2(){
                 }else{
                     $body = "UserName=$userName&Password=$passwordEnc&Kmsi=true&AuthMethod=FormsAuthentication"
                 }
-                $res = JosL-WebRequest -url $nextURL -Method POST -body $body
+                $res = New-WebRequest -url $nextURL -Method POST -body $body
                 $attempts++
             }
 
@@ -2107,7 +2119,7 @@ function loginV2(){
         $wResult = [System.Web.HttpUtility]::HtmlDecode($wResult)
         $wResult = [System.Web.HttpUtility]::UrlEncode($wResult)
         $body = "wa=wsignin1.0&wresult=$wResult&amp;LoginOptions=1"
-        $res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"
+        $res = New-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"
         
         #check for double redirect which will happen if ADFS is itself federated
         $wResult = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"wresult`" value=`""
@@ -2117,7 +2129,7 @@ function loginV2(){
 			$wResult = [System.Web.HttpUtility]::HtmlDecode($wResult)
 			$wResult = [System.Web.HttpUtility]::UrlEncode($wResult)
 			$body = "wa=wsignin1.0&wresult=$wResult&amp;LoginOptions=1"
-			$res = JosL-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*" 
+			$res = New-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*" 
 		}
 
         if($res.Content.IndexOf("<meta name=`"PageID`" content=`"KmsiInterrupt`"") -ne -1){
@@ -2132,7 +2144,7 @@ function loginV2(){
             $body = "LoginOptions=1&ctx=$cstsRequest&flowToken=$sFT&canary=$newCanary&DontShowAgain=true&i19=2759"
             try{
                 log -text "sending cookie persistence request"
-                $res = JosL-WebRequest -url "https://login.microsoftonline.com/kmsi" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri        
+                $res = New-WebRequest -url "https://login.microsoftonline.com/kmsi" -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri        
             }catch{$Null}
         }
 
@@ -3328,7 +3340,7 @@ if($autoMapFavoriteSites){
         try{
             log -text "Retrieving favorited sites because autoMapFavoriteSites is set to TRUE"
             $customHeaders = @{"Upgrade-Insecure-Requests" = 1;"Cache-Control" = "max-age=0";"Accept-Language"="en-US,en;q=0.9,nl;q=0.8"}
-            $res = JosL-WebRequest -url $favoritesURL -Method GET -accept "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8" -customHeaders $customHeaders
+            $res = New-WebRequest -url $favoritesURL -Method GET -accept "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8" -customHeaders $customHeaders
         }catch{
             log -text "error retrieving favorited sites $($Error[0])" -fout
         }
@@ -3340,7 +3352,7 @@ if($autoMapFavoriteSites){
             try{
                 log -text "Retrieving favorited sites because autoMapFavoriteSites is set to TRUE"
                 $customHeaders = @{"Upgrade-Insecure-Requests" = 1;"Cache-Control" = "max-age=0";"Accept-Language"="en-US,en;q=0.9,nl;q=0.8"}
-                $res = JosL-WebRequest -url $favoritesURL -Method GET -accept "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8" -customHeaders $customHeaders
+                $res = New-WebRequest -url $favoritesURL -Method GET -accept "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8" -customHeaders $customHeaders
                 $accessToken = returnEnclosedFormValue -res $res -searchString "`"AccessToken`":`""
                 $resource = returnEnclosedFormValue -res $res -searchString "`",`"Resource`":`""
             }catch{
@@ -3351,7 +3363,7 @@ if($autoMapFavoriteSites){
             $payLoad = (returnEnclosedFormValue -res $res -searchString "Payload`":`"{" -endString "}").Replace("\","")
             $payLoad = "{$payLoad}"
             $customHeaders = @{"SPHome-ApiContext" = $payLoad; "SPHome-MicroserviceFlights" = "SPHomeServiceChangeLog;SPHomeServicePersonalCache;SPHomeServiceOLSAsPrimary";"SPHome-ClientType" = "Web";"Authorization" = "Bearer $accessToken"} 
-            $res = JosL-WebRequest -body "" -url "$resource/api/v1/sites/followed?mostRecentFirst=true&start=0&count=100&fillSiteData=true" -method POST -customHeaders $customHeaders -contentType "application/json;odata=verbose" -accept "application/json;odata=verbose"
+            $res = New-WebRequest -body "" -url "$resource/api/v1/sites/followed?mostRecentFirst=true&start=0&count=100&fillSiteData=true" -method POST -customHeaders $customHeaders -contentType "application/json;odata=verbose" -accept "application/json;odata=verbose"
             $results = ($res.Content | convertfrom-json).Items
         }catch{
             log -text "Failed to retrieve favorite sites" -fout
@@ -3428,7 +3440,7 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
             log -text "Retrieving Onedrive for Business cookie step 1..." 
             #trigger forced authentication to SpO O4B and follow the redirect
             try{
-                $res = JosL-WebRequest -url $baseURL -method GET
+                $res = New-WebRequest -url $baseURL -method GET
             }catch{
                 log -text "Failed to retrieve cookie for Onedrive for Business: $($Error[0])" -fout
             }
@@ -3482,10 +3494,10 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
                     log -text "Waited for $timeWaited seconds for O4b auto provisioning..."
                 }
                 if($timeWaited -gt 0){
-                    $res = JosL-WebRequest -url "https://$($O365CustomerName)-my.sharepoint.com/_layouts/15/MyBraryFirstRun.aspx?FirstRunStage=waiting" -method GET
+                    $res = New-WebRequest -url "https://$($O365CustomerName)-my.sharepoint.com/_layouts/15/MyBraryFirstRun.aspx?FirstRunStage=waiting" -method GET
                 }
                 Start-Sleep -s 10
-                $res = JosL-WebRequest -url $baseURL -method GET
+                $res = New-WebRequest -url $baseURL -method GET
                 $timeWaited += 10
             }
             $desiredMappings[$count].webDavPath = $mapURL 
@@ -3517,7 +3529,7 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
             log -text "Retrieving Sharepoint cookie step 1..." 
             #trigger forced authentication to SpO and follow the redirect if needed
             try{
-                $res = JosL-WebRequest -url $spURL -method GET
+                $res = New-WebRequest -url $spURL -method GET
             }catch{
                 log -text "Failed to retrieve cookie for SpO, will not map this site: $($Error[0])" -fout
                 $desiredMappings[$count].alreadyMapped = $True
