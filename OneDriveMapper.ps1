@@ -1659,7 +1659,7 @@ function handleO365Redirect{
             $redirectFollowed=$True
         }catch{
             log -text "Error detected while following id_token redirect, check the FAQ for help" -fout
-            Throw "Failed to follow redirect"           
+            Throw "Failed to follow id_token redirect"           
         }
     }     
     $nextURL = returnEnclosedFormValue -res $res -searchString "form name=`"fmHF`" id=`"fmHF`" action=`"" -decode
@@ -1673,7 +1673,7 @@ function handleO365Redirect{
             $redirectFollowed=$True
         }catch{
             log -text "Error detected while following fmHF redirect, check the FAQ for help" -fout
-            Throw 
+            Throw "Failed to follow fmHF redirect" 
         }    
     }    
 
@@ -1689,7 +1689,7 @@ function handleO365Redirect{
             $redirectFollowed=$True
         }catch{
             log -text "Error detected while following DeviceAuth redirect, check the FAQ for help" -fout
-            Throw 
+            Throw "Failed to follow DeviceAuth redirect" 
         }    
     }   
 
@@ -3462,7 +3462,7 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
             try{
                 $res = (handleO365Redirect -res $res)[0]
             }catch{
-                return $False
+                continue
             }
 
             #MFA check
@@ -3477,7 +3477,7 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
             try{
                 $res = (handleO365Redirect -res $res)[0]
             }catch{
-                return $False
+                continue
             } 
 
             $stillProvisioning = $True
@@ -3553,7 +3553,7 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
             try{
                 $res = (handleO365Redirect -res $res)[0]
             }catch{
-                return $False
+                continue
             }
 
             #MFA check
@@ -3568,7 +3568,7 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
             try{
                 $res = (handleO365Redirect -res $res)[0]
             }catch{
-                return $False
+                continue
             } 
 
             if($desiredMappings[$count]."mapOnlyForSpecificGroup" -eq "favoritesPlaceholder"){
