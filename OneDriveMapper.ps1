@@ -3467,7 +3467,7 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
 
             #MFA check
             try{
-                $res = handleMFArequest -res $res[0] -clientId $clientId
+                $res = handleMFArequest -res $res -clientId $clientId
                 log -text "MFA challenge completed"
             }catch{
                 log -text "MFA check result: $_"
@@ -3558,7 +3558,7 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
 
             #MFA check
             try{
-                $res = handleMFArequest -res $res[0] -clientId $clientId
+                $res = handleMFArequest -res $res -clientId $clientId
                 log -text "MFA challenge completed"
             }catch{
                 log -text "MFA check result: $_"
