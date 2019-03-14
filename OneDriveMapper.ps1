@@ -583,18 +583,6 @@ function getElementById{
     }
 }
 
-function ConvertTo-Json20([object] $item){
-    add-type -assembly system.web.extensions
-    $ps_js=new-object system.web.script.serialization.javascriptSerializer
-    return $ps_js.Serialize($item)
-}
-
-function ConvertFrom-Json20([object] $item){ 
-    add-type -assembly system.web.extensions
-    $ps_js=new-object system.web.script.serialization.javascriptSerializer
-    return ,$ps_js.DeserializeObject($item)
-}
-
 function New-WebRequest{
     Param(
         $url,
@@ -1733,7 +1721,7 @@ function loginV2(){
             #this is the new realm discovery endpoint:
             $customHeaders = @{"canary" = $apiCanary;"hpgid" = "1104";"hpgact" = "1800";"client-request-id"=$clientId}
             $JSON = @{"username"="$userUPN";"isOtherIdpSupported"=$true;"checkPhones"=$false;"isRemoteNGCSupported"=$false;"isCookieBannerShown"=$false;"isFidoSupported"=$false;"originalRequest"="$cstsRequest"}
-            $JSON = ConvertTo-Json20 -item $JSON
+            $JSON = ConvertTo-Json $JSON
             try{
                 $res = New-WebRequest -url "https://login.microsoftonline.com/common/GetCredentialType" -Method POST -body $JSON -customHeaders $customHeaders -referer $res.rawResponse.ResponseUri.AbsoluteUri
                 log -text "New realm discovery method succeeded"
@@ -1796,9 +1784,9 @@ function loginV2(){
             $nextURL2 = "https://login.microsoftonline.com/common/instrumentation/dssostatus"
             $customHeaders = @{"canary" = $apiCanary;"hpgid" = "1104";"hpgact" = "1800";"client-request-id"=$clientId}
             $JSON = @{"resultCode"="0";"ssoDelay"="200";"log"=$Null}
-            $JSON = ConvertTo-Json20 -item $JSON
+            $JSON = ConvertTo-Json $JSON
             $res = New-WebRequest -url $nextURL2 -method POST -body $JSON -customHeaders $customHeaders
-            $JSON = ConvertFrom-Json20 -item $res.Content
+            $JSON = ConvertFrom-Json $res.Content
             if($JSON.apiCanary){
                 log -text "AADC SSO step 1 completed"
             }else{
@@ -1897,9 +1885,9 @@ function loginV2(){
             $nextURL2 = "https://login.microsoftonline.com/common/instrumentation/dssostatus"
             $customHeaders = @{"canary" = $apiCanary;"hpgid" = "1002";"hpgact" = "2101";"client-request-id"=$clientId}
             $JSON = @{"resultCode"="107";"ssoDelay"="200";"log"=$Null}
-            $JSON = ConvertTo-Json20 -item $JSON
+            $JSON = ConvertTo-Json $JSON
             $res = New-WebRequest -url $nextURL2 -method POST -body $JSON -customHeaders $customHeaders
-            $JSON = ConvertFrom-Json20 -item $res.Content
+            $JSON = ConvertFrom-Json $res.Content
             if($JSON.apiCanary){
                 log -text "AADC SSO step 1 completed"
             }else{
@@ -1986,9 +1974,9 @@ function loginV2(){
                     $customHeaders = @{"canary" = $apiCanary;"hpgid" = "1002";"hpgact" = "2000";"client-request-id"=$clientId}
                     $nextURL = "https://login.microsoftonline.com/common/onpremvalidation/Poll"
                     $JSON = @{"flowToken"=$flowToken;"ctx"=$stsRequest}
-                    $JSON = ConvertTo-Json20 -item $JSON
+                    $JSON = ConvertTo-Json $JSON
                     $res = New-WebRequest -url $nextURL -Method POST -body $JSON -customHeaders $customHeaders
-                    $response = ConvertFrom-Json20 -item $res.Content
+                    $response = ConvertFrom-Json $res.Content
                     $body = "flowToken=$($response.flowToken)&ctx=$stsRequest"
                     $nextURL =  "https://login.microsoftonline.com/common/onpremvalidation/End"
                     $res = New-WebRequest -url $nextURL -Method POST -body $body
@@ -2005,7 +1993,7 @@ function loginV2(){
                     log -text "We do not seem to have been properly redirected for SSO yet" -warning
                 }
                 try{
-                    $JSON = ConvertFrom-Json20 -item $res.Content
+                    $JSON = ConvertFrom-Json $res.Content
                     if($JSON.error.message -eq "AADSTS50012"){
                         log -text "Your password was incorrect according to AADC SSO" -fout
                     }elseif($JSON.error){
