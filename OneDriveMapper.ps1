@@ -7,7 +7,6 @@
 #Purpose:           This script maps Onedrive for Business and/or maps a configurable number of Sharepoint Libraries
 #Enterprise users:  This script is not recommended for Enterprise use as no dedicated support is available. Check www.lieben.nu for enterprise options.
 
-
 #Todo:
 #1 remove undesired network locations and do not error out when it already exists and matches the desired location
 #2 MFA revamp (done, Native mode only!)
@@ -1632,7 +1631,7 @@ function handleO365Redirect{
     $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
     $id_token = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"id_token`" value=`""
     $session_state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"session_state`" value=`""
-    if($nextURL -like "*-my.sharepoint.com*"){
+    if($nextURL -like "*sharepoint.com*"){
         $correlation_id = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"correlation_id`" value=`""
         $body = "code=$([System.Web.HttpUtility]::UrlEncode($code))&id_token=$([System.Web.HttpUtility]::UrlEncode($id_token))&correlation_id=$([System.Web.HttpUtility]::UrlEncode($correlation_id))&session_state=$([System.Web.HttpUtility]::UrlEncode($session_state))"
     }else{
@@ -3536,6 +3535,7 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
                 $desiredMappings[$count].alreadyMapped = $True
                 continue
             }
+
 
             #follow first 1-2 redirects, fail if none are detected or if redirects are detected but fail (abnormal flow)
             try{
