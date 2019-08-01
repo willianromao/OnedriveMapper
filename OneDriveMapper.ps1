@@ -65,7 +65,7 @@ $autoMapFavoritesDrive = "S"                       #Driveletter when using autom
 $autoMapFavoritesLabel = "Teams"                   #Label of favorites container, ie; folder name if automapFavoritesMode = "Onedrive", drive label if automapFavoritesMode = "Converged"
 $autoMapFavoritesDrvLetterList = "DEFGHIJKLMNOPQRSTUVWXYZ" #List of driveletters that shall be used (you can ommit some of yours "reserved" letters)
 $favoriteSitesDLName   = "Gedeelde  Documenten"    #Normally autodetected, default document library name in Teams/Groups/Sites to map in conjunction with $autoMapFavoriteSites, note the double spaces! Use Shared  Documents for english language tenants
-$restartExplorer       = $False                    #Leave at False unless you're redirecting folders and they don't get redirected properly
+$restartExplorer       = $True                     #You can safely set this to False if you're not redirecting folders
 $autoResetIE           = $False                    #always clear all Internet Explorer cookies before running (prevents certain occasional issues with IE)
 $authenticateToProxy   = $False                    #use system proxy settings and authenticate automatically
 $libraryName           = "Documents"               #leave this default, unless you wish to map a non-default onedrive library you've created 
@@ -889,24 +889,20 @@ function startWebDavClient{
 }
 
 function restart_explorer{ 
-    log -text "Restarting Explorer.exe to make the drive(s) visible"  
-    #kill all running explorer instances of this user  
-    $explorerStatus = Get-ProcessWithOwner explorer  
-    if($explorerStatus -eq 0){  
-        log -text "no instances of Explorer running yet, at least one should be running" -warning 
-    }elseif($explorerStatus -eq -1){  
-        log -text "ERROR Checking status of Explorer.exe: unable to query WMI" -fout 
-    }else{  
-        log -text "Detected running Explorer processes, attempting to shut them down..."  
-        foreach($Process in $explorerStatus){  
-            try{  
-                Stop-Process $Process.handle | Out-Null  
-                log -text "Stopped process with handle $($Process.handle)"  
-            }catch{  
-                log -text "Failed to kill process with handle $($Process.handle)" -fout 
-            }  
-        }  
-    }  
+    log -text "Refreshing Explorer to make the drive(s) visible" 
+$definition = @'
+[System.Runtime.InteropServices.DllImport("Shell32.dll")] 
+private static extern int SHChangeNotify(int eventId, int flags, IntPtr item1, IntPtr item2);
+public static void Refresh() {
+    SHChangeNotify(0x8000000, 0x1000, IntPtr.Zero, IntPtr.Zero);    
+}
+'@
+    try{
+        Add-Type -MemberDefinition $definition -Namespace WinAPI -Name Explorer
+        [WinAPI.Explorer]::Refresh()
+    }catch{
+        log -text "Failed to refresh Explorer" -fout
+    }
 }  
 function queryForAllCreds {
     Param(
