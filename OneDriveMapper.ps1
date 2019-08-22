@@ -86,7 +86,6 @@ $urlOpenAfter          = ""                        #This URL will be opened by t
 $showProgressBar       = $True                     #will show a progress bar to the user
 $progressBarColor      = "#CC99FF"
 $progressBarText       = "OnedriveMapper v$version is connecting your drives..."
-$versionCheck          = $False                     #will check if running the latest version, if not, this will be logged to the logfile, no personal data is transmitted.
 $autoDetectProxy       = $False                    #if set to $False, unchecks the 'Automatically detect proxy settings' setting in IE; this greatly enhanced WebDav performance, set to true to not modify this IE setting (leave as is)
 $forceUserName         = ''                        #if anything is entered here, userLookupMode is ignored
 $forcePassword         = ''                        #if anything is entered here, the user won't be prompted for a password. This function is not recommended, as your password could be stolen from this file 
@@ -784,31 +783,6 @@ function loadSecureString{
         return $string
     }catch{
         Throw
-    }
-}
-
-function versionCheck{
-    Param(
-        $currentVersion
-    )
-    $apiURL = "http://om.lieben.nu/lieben_api.php?script=OnedriveMapper&version=$currentVersion"
-    $apiKeyword = "latestOnedriveMapperVersion"
-    try{
-        $result = New-WebRequest -Url $apiURL
-    }catch{
-        Throw "Failed to connect to API url for version check: $apiURL $($Error[0])"
-    }
-    try{
-        $keywordIndex = $result.Content.IndexOf($apiKeyword)
-        if($keywordIndex -lt 1){
-            Throw ""
-        }
-    }catch{
-        Throw "Connected to API url for version check, but invalid API response"
-    }
-    $latestVersion = $result.Content.SubString($keywordIndex+$apiKeyword.Length+1,4)
-    if($latestVersion -ne $currentVersion){
-        Throw "OnedriveMapper version mismatch, current version: v$currentVersion, latest version: v$latestVersion"
     }
 }
 
@@ -2868,24 +2842,6 @@ if($showProgressBar) {
     $form1.Focus() | out-null 
     $progressbar1.Value = 5
     $form1.Refresh()
-}
-
-#do a version check if allowed
-if($versionCheck){
-    #update progress bar
-    try{
-        versionCheck -currentVersion $version
-        log -text "NOTICE: you are running the latest (v$version) version of OnedriveMapper"
-    }catch{
-        if($showProgressBar) {
-            $form1.controls["Label1"].Text = "New OnedriveMapper version available!"
-            $form1.Refresh()
-            Start-Sleep -s 1
-            $form1.controls["Label1"].Text = "OnedriveMapper v$version is connecting your drives..."
-            $form1.Refresh()
-        }
-        log -text "ERROR: $($Error[0])" -fout
-    }
 }
 
 #load cookie code and test-set a cookie
