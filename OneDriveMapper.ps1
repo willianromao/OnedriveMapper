@@ -315,28 +315,6 @@ function Add-NetworkLocation
     }
 }
 
-function handleSpoReAuth{
-    Param(
-        $res
-    )
-    try{
-        if((returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`"" -decode) -ne -1){
-            $nextURL = returnEnclosedFormValue -res $res -searchString "<form method=`"POST`" name=`"hiddenform`" action=`"" -decode
-            $code = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"code`" value=`""
-            $id_token = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"id_token`" value=`""
-            $session_state = returnEnclosedFormValue -res $res -searchString "<input type=`"hidden`" name=`"session_state`" value=`""
-            $body = "code=$code&id_token=$id_token&session_state=$session_state"                    
-        }
-        if($nextURL.Length -gt 10){
-            log -text "Retrieving Sharepoint cookie step 2 at $nextURL"
-            $res = New-WebRequest -url $nextURL -Method POST -body $body
-        }
-        return $res
-    }catch{
-        log -text "Problem reported during sharepoint reauth: $($Error[0])" -fout
-    }
-}
-
 function handleMFArequest{
     Param(
         $res,
@@ -1610,7 +1588,7 @@ function handleO365Redirect{
     }
        
     if($nextURL -ne -1 -and $id_token -ne -1){
-        log -text "Detected a id_token redirect to Office.com, following..."
+        log -text "Detected a id_token redirect, following..."
         try{
             $res = New-WebRequest -url $nextURL -Method POST -body $body -referer $res.rawResponse.ResponseUri.AbsoluteUri -contentType "application/x-www-form-urlencoded" -accept "text/html, application/xhtml+xml, image/jxr, */*"  
             $redirectFollowed=$True
@@ -3323,7 +3301,11 @@ if($autoMapFavoriteSites){
         }catch{
             log -text "error retrieving favorited sites $($Error[0])" -fout
         }
-        $res = handleSpoReAuth -res $res        
+        try{
+            $res = (handleO365Redirect -res $res)[0]
+        }catch{
+            continue
+        }       
         $accessToken = returnEnclosedFormValue -res $res -searchString "`"AccessToken`":`""
         $resource = returnEnclosedFormValue -res $res -searchString "`",`"Resource`":`""
         if($accessToken -eq -1 -and $resource -eq -1){
@@ -3514,7 +3496,6 @@ for($count=0;$count -lt $desiredMappings.Count;$count++){
                 $desiredMappings[$count].alreadyMapped = $True
                 continue
             }
-
 
             #follow first 1-2 redirects, fail if none are detected or if redirects are detected but fail (abnormal flow)
             try{
