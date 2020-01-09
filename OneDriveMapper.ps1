@@ -207,7 +207,7 @@ ResetLog
 log -text "-----$(Get-Date) OneDriveMapper v$version - $($env:USERNAME) on $($env:COMPUTERNAME) starting-----" 
 
 ###THIS ONLY HAS TO BE CONFIGURED IF YOU WANT TO MAP USER SECURITY GROUPS TO SHAREPOINT SITES
-if($desiredMappings.mapOnlyForSpecificGroup | Where-Object{$_.Length -gt 0}){
+if($desiredMappings | Where-Object{$_.mapOnlyForSpecificGroup.Length -gt 0}){
     try{
         $groups = ([ADSISEARCHER]"(member:1.2.840.113556.1.4.1941:=$(([ADSISEARCHER]"samaccountname=$($env:USERNAME)").FindOne().Properties.distinguishedname))").FindAll().Properties.distinguishedname -replace '^CN=([^,]+).+$','$1'
         log -text "cached user group membership because you have configured mappings where the mapOnlyForSpecificGroup option was configured"   
