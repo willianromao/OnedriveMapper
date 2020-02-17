@@ -1,9 +1,9 @@
 ######## 
 #OneDriveMapper
 #Copyright:         Free to use, please leave this header intact 
-#Author:            Jos Lieben (OGD)
-#Company:           OGD (http://www.ogd.nl) 
-#Script help:       http://www.lieben.nu, please provide a decrypted Fiddler Trace Log if you're using Native auth and having issues
+#Author:            Jos Lieben (Lieben Consultancy)
+#Company:           https://www.lieben.nu 
+#Script help:       https://www.lieben.nu/liebensraum/onedrivemapper/, please provide a decrypted Fiddler Trace Log if you're using Native auth and having issues
 #Purpose:           This script maps Onedrive for Business and/or maps a configurable number of Sharepoint Libraries
 #Enterprise users:  This script is not recommended for Enterprise use as no dedicated support is available. Check www.lieben.nu for enterprise options.
 
@@ -22,7 +22,7 @@ $version = "3.21"
 
 ####MANDATORY MANUAL CONFIGURATION
 $authMethod            = "native"                  #Uses AzureAD integrated when set to "azure", Uses IE automation (old method) when set to "ie", uses new native method when set to "native"
-$O365CustomerName      = "ogd"          #This should be the name of your tenant (example, ogd as in ogd.onmicrosoft.com) 
+$O365CustomerName      = "lieben"          #This should be the name of your tenant (example, lieben as in lieben.onmicrosoft.com) 
 $debugmode             = $False                    #Set to $True for debugging purposes. You'll be able to see the script navigate in Internet Explorer if you're using IE auth mode
 $userLookupMode        = 3                         #1 = Active Directory UPN, 2 = Active Directory Email, 3 = Azure AD Joined Windows 10, 4 = query user for his/her login, 5 = lookup by registry key, 6 = display full form (ask for both username and login if no cached versions can be found), 7 = whoami /upn
 $AzureAADConnectSSO    = $False                    #NOT NEEDED FOR NATIVE AUTH, if set to True, will automatically remove AzureADSSO registry key before mapping, and then readd them after mapping. Otherwise, mapping fails because AzureADSSO creates a non-persistent cookie
@@ -47,8 +47,8 @@ $desiredMappings =  @(
 #EXAMPLE SETTINGS (Onedrive for Business, two Sharepoint sites, one mapped to a driveletter, one to a shortcut, the last only when a member of the Active Directory group SEC-SHAREPOINTA)
 #$desiredMappings =  @(
 #    @{"displayName"="Onedrive for Business";"targetLocationType"="driveletter";"targetLocationPath"="X:";"sourceLocationPath"="autodetect";"mapOnlyForSpecificGroup"=""},
-#    @{"displayName"="Sharepoint Site A";"targetLocationType"="networklocation";"targetLocationPath"="$env:APPDATA\Microsoft\Windows\Network Shortcuts";"sourceLocationPath"="https://ogd.sharepoint.com/sites/OGDWerkplek/Gedeelde%20%20documenten/Forms/AllItems.aspx";"mapOnlyForSpecificGroup"="SEC-SHAREPOINTA"},
-#    @{"displayName"="Sharepoint Site A";"targetLocationType"="driveletter";"targetLocationPath"="Z:";"sourceLocationPath"="https://ogd.sharepoint.com/sites/OGDWerkplek/Gedeelde%20%20documenten/Forms/AllItems.aspx";"mapOnlyForSpecificGroup"=""} #note that the last entry does NOT end with a comma!
+#    @{"displayName"="Sharepoint Site A";"targetLocationType"="networklocation";"targetLocationPath"="$env:APPDATA\Microsoft\Windows\Network Shortcuts";"sourceLocationPath"="https://lieben.sharepoint.com/sites/lieben/Gedeelde%20%20documenten/Forms/AllItems.aspx";"mapOnlyForSpecificGroup"="SEC-SHAREPOINTA"},
+#    @{"displayName"="Sharepoint Site A";"targetLocationType"="driveletter";"targetLocationPath"="Z:";"sourceLocationPath"="https://lieben.sharepoint.com/sites/lieben/Gedeelde%20%20documenten/Forms/AllItems.aspx";"mapOnlyForSpecificGroup"=""} #note that the last entry does NOT end with a comma!
 #)
 
 $redirectFolders       = $false #Set to TRUE and configure below hashtable to redirect folders
