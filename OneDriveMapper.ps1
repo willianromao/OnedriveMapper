@@ -18,10 +18,10 @@ param(
     [Switch]$hideConsole
 )
 
-$version = "3.21"
+$version = "3.22"
 
 ####MANDATORY MANUAL CONFIGURATION
-$authMethod            = "native"                  #Uses AzureAD integrated when set to "azure", Uses IE automation (old method) when set to "ie", uses new native method when set to "native"
+$authMethod            = "interactive"                  #Support almost everything in "interactive" mode but requires user input, Uses AzureAD integrated when set to "azure", Uses IE automation (old method) when set to "ie", uses native (silent/fast) method when set to "native"
 $O365CustomerName      = "lieben"          #This should be the name of your tenant (example, lieben as in lieben.onmicrosoft.com) 
 $debugmode             = $False                    #Set to $True for debugging purposes. You'll be able to see the script navigate in Internet Explorer if you're using IE auth mode
 $userLookupMode        = 3                         #1 = Active Directory UPN, 2 = Active Directory Email, 3 = Azure AD Joined Windows 10, 4 = query user for his/her login, 5 = lookup by registry key, 6 = display full form (ask for both username and login if no cached versions can be found), 7 = whoami /upn
@@ -68,10 +68,10 @@ $favoriteSitesDLName   = "Gedeelde  Documenten"    #Normally autodetected, defau
 $restartExplorer       = $True                     #You can safely set this to False if you're not redirecting folders
 $autoResetIE           = $False                    #always clear all Internet Explorer cookies before running (prevents certain occasional issues with IE)
 $authenticateToProxy   = $False                    #use system proxy settings and authenticate automatically
-$libraryName           = "Documents"               #leave this default, unless you wish to map a non-default onedrive library you've created 
+$libraryName           = "Documents"               #leave this default, unless you wish to map a non-default onedrive library you've created. Only used if it cannot be autodetected for some reason
 $autoKillIE            = $True                     #Kill any running Internet Explorer processes prior to running the script to prevent security errors when mapping 
 $abortIfNoAdfs         = $False                    #If set to True, will stop the script if no ADFS server has been detected during login
-$adfsSmartLink         = $Null                     #If set, the ADFS smartlink will be used to log in to Office 365. For more info, read the FAQ at http://http://www.lieben.nu/liebensraum/onedrivemapper/onedrivemapper-faq/
+$adfsSmartLink         = $Null                     #If set, the ADFS smartlink will be used to log in to Office 365. For more info, read the FAQ at https://www.lieben.nu/liebensraum/onedrivemapper/onedrivemapper-faq/
 $displayErrors         = $True                     #show errors to user in visual popups
 $persistentMapping     = $True                     #If set to $False, the mapping will go away when the user logs off
 $buttonText            = "Login"                   #Text of the button on the password input popup box
@@ -2753,6 +2753,17 @@ if($authMethod -eq "native" -and $PSVersionTable.PSVersion.Major -le 2){
     log -text "ERROR: you're trying to use Native auth on Powershell V2 or lower, switching to IE mode" -fout
     $authMethod = "IE"
 }
+
+Add-Type -TypeDefinition @"
+    using System;
+    using System.Runtime.InteropServices;
+
+    public class Win32SetWindow {
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SetForegroundWindow(IntPtr hWnd);
+    }
+"@
 
 #show a progress bar if set to True
 if($showProgressBar) {
